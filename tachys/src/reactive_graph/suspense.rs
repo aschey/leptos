@@ -1,28 +1,24 @@
 use crate::{
-    html::attribute::Attribute,
-    hydration::Cursor,
-    ssr::StreamBuilder,
+    prelude::Renderer,
     view::{
-        add_attr::AddAnyAttr, iterators::OptionState, Mountable, Position,
-        PositionState, Render, RenderHtml,
+        iterators::OptionState, Mountable, Render,
     },
 };
 use any_spawner::Executor;
 use futures::{
-    future::{AbortHandle, Abortable},
-    select, FutureExt,
+    future::{AbortHandle, Abortable}, FutureExt,
 };
 use or_poisoned::OrPoisoned;
 use reactive_graph::{
     computed::{
-        suspense::{LocalResourceNotifier, SuspenseContext},
+        suspense::SuspenseContext,
         ScopedFuture,
     },
     graph::{
         AnySource, AnySubscriber, Observer, ReactiveNode, Source, Subscriber,
         ToAnySubscriber, WithObserver,
     },
-    owner::{on_cleanup, provide_context, use_context},
+    owner::{on_cleanup, use_context},
 };
 use std::{
     cell::RefCell,
@@ -132,40 +128,39 @@ impl<Fut> Debug for Suspend<Fut> {
 }
 
 /// Retained view state for [`Suspend`].
-pub struct SuspendState<T>
+pub struct SuspendState<T, R>
 where
-    T: Render,
+    T: Render<R>,
+    R: Renderer,
 {
-    inner: Rc<RefCell<OptionState<T>>>,
+    inner: Rc<RefCell<OptionState<T, R>>>,
 }
 
-impl<T> Mountable for SuspendState<T>
+impl<T, R> Mountable<R> for SuspendState<T, R>
 where
-    T: Render,
+    T: Render<R>,
+    R: Renderer,
 {
     fn unmount(&mut self) {
         self.inner.borrow_mut().unmount();
     }
 
-    fn mount(
-        &mut self,
-        parent: &crate::renderer::types::Element,
-        marker: Option<&crate::renderer::types::Node>,
-    ) {
+    fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
         self.inner.borrow_mut().mount(parent, marker);
     }
 
-    fn insert_before_this(&self, child: &mut dyn Mountable) -> bool {
+    fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
         self.inner.borrow_mut().insert_before_this(child)
     }
 }
 
-impl<Fut> Render for Suspend<Fut>
+impl<Fut, R> Render<R> for Suspend<Fut>
 where
     Fut: Future + 'static,
-    Fut::Output: Render,
+    Fut::Output: Render<R>,
+    R: Renderer,
 {
-    type State = SuspendState<Fut::Output>;
+    type State = SuspendState<Fut::Output, R>;
 
     fn build(self) -> Self::State {
         let Self { subscriber, inner } = self;
@@ -252,194 +247,5 @@ where
                 subscriber.forward();
             }
         });
-    }
-}
-
-impl<Fut> AddAnyAttr for Suspend<Fut>
-where
-    Fut: Future + Send + 'static,
-    Fut::Output: AddAnyAttr,
-{
-    type Output<SomeNewAttr: Attribute> = Suspend<
-        Pin<
-            Box<
-                dyn Future<
-                        Output = <Fut::Output as AddAnyAttr>::Output<
-                            SomeNewAttr::CloneableOwned,
-                        >,
-                    > + Send,
-            >,
-        >,
-    >;
-
-    fn add_any_attr<NewAttr: Attribute>(
-        self,
-        attr: NewAttr,
-    ) -> Self::Output<NewAttr>
-    where
-        Self::Output<NewAttr>: RenderHtml,
-    {
-        let attr = attr.into_cloneable_owned();
-        Suspend::new(Box::pin(async move {
-            let this = self.inner.await;
-            this.add_any_attr(attr)
-        }))
-    }
-}
-
-impl<Fut> RenderHtml for Suspend<Fut>
-where
-    Fut: Future + Send + 'static,
-    Fut::Output: RenderHtml,
-{
-    type AsyncOutput = Option<Fut::Output>;
-
-    const MIN_LENGTH: usize = Fut::Output::MIN_LENGTH;
-
-    fn to_html_with_buf(
-        self,
-        buf: &mut String,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) {
-        // TODO wrap this with a Suspense as needed
-        // currently this is just used for Routes, which creates a Suspend but never actually needs
-        // it (because we don't lazy-load routes on the server)
-        if let Some(inner) = self.inner.now_or_never() {
-            inner.to_html_with_buf(buf, position, escape, mark_branches);
-        }
-    }
-
-    fn to_html_async_with_buf<const OUT_OF_ORDER: bool>(
-        self,
-        buf: &mut StreamBuilder,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) where
-        Self: Sized,
-    {
-        let mut fut = Box::pin(self.inner);
-        match fut.as_mut().now_or_never() {
-            Some(inner) => inner.to_html_async_with_buf::<OUT_OF_ORDER>(
-                buf,
-                position,
-                escape,
-                mark_branches,
-            ),
-            None => {
-                if use_context::<SuspenseContext>().is_none() {
-                    buf.next_id();
-                    let (local_tx, mut local_rx) =
-                        futures::channel::oneshot::channel::<()>();
-                    provide_context(LocalResourceNotifier::from(local_tx));
-                    let mut fut = fut.fuse();
-                    let fut = async move {
-                        select! {
-                            _  = local_rx => None,
-                            value = fut => Some(value)
-                        }
-                    };
-                    let id = buf.clone_id();
-
-                    // out-of-order streams immediately push fallback,
-                    // wrapped by suspense markers
-                    if OUT_OF_ORDER {
-                        let mut fallback_position = *position;
-                        buf.push_fallback::<()>(
-                            (),
-                            &mut fallback_position,
-                            mark_branches,
-                        );
-                        buf.push_async_out_of_order(
-                            fut,
-                            position,
-                            mark_branches,
-                        );
-                    } else {
-                        buf.push_async({
-                            let mut position = *position;
-                            async move {
-                                let value = fut.await;
-                                let mut builder = StreamBuilder::new(id);
-                                value.to_html_async_with_buf::<OUT_OF_ORDER>(
-                                    &mut builder,
-                                    &mut position,
-                                    escape,
-                                    mark_branches,
-                                );
-                                builder.finish().take_chunks()
-                            }
-                        });
-                        *position = Position::NextChild;
-                    }
-                }
-            }
-        }
-    }
-
-    // TODO cancellation
-    fn hydrate<const FROM_SERVER: bool>(
-        self,
-        cursor: &Cursor,
-        position: &PositionState,
-    ) -> Self::State {
-        let Self { subscriber, inner } = self;
-
-        // create a Future that will be aborted on on_cleanup
-        // this prevents trying to access signals or other resources inside the Suspend, after the
-        // await, if they have already been cleaned up
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let mut fut = Box::pin(Abortable::new(inner, abort_registration));
-        on_cleanup(move || abort_handle.abort());
-
-        // poll the future once immediately
-        // if it's already available, start in the ready state
-        // otherwise, start with the fallback
-        let initial = fut.as_mut().now_or_never().and_then(Result::ok);
-        let initially_pending = initial.is_none();
-        let inner = Rc::new(RefCell::new(
-            initial.hydrate::<FROM_SERVER>(cursor, position),
-        ));
-
-        // get a unique ID if there's a SuspenseContext
-        let id = use_context::<SuspenseContext>().map(|sc| sc.task_id());
-        let error_hook = use_context::<Arc<dyn ErrorHook>>();
-
-        // if the initial state was pending, spawn a future to wait for it
-        // spawning immediately means that our now_or_never poll result isn't lost
-        // if it wasn't pending at first, we don't need to poll the Future again
-        if initially_pending {
-            reactive_graph::spawn_local_scoped({
-                let state = Rc::clone(&inner);
-                async move {
-                    let _guard = error_hook.as_ref().map(|hook| {
-                        throw_error::set_error_hook(Arc::clone(hook))
-                    });
-
-                    let value = fut.as_mut().await;
-                    drop(id);
-
-                    if let Ok(value) = value {
-                        Some(value).rebuild(&mut *state.borrow_mut());
-                    }
-
-                    subscriber.forward();
-                }
-            });
-        } else {
-            subscriber.forward();
-        }
-
-        SuspendState { inner }
-    }
-
-    async fn resolve(self) -> Self::AsyncOutput {
-        Some(self.inner.await)
-    }
-
-    fn dry_resolve(&mut self) {
-        self.inner.as_mut().now_or_never();
     }
 }

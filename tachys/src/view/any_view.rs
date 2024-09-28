@@ -1,18 +1,9 @@
-#[cfg(feature = "ssr")]
-use super::MarkBranch;
-use super::{
-    add_attr::AddAnyAttr, Mountable, Position, PositionState, Render,
-    RenderHtml,
-};
-use crate::{
-    html::attribute::Attribute, hydration::Cursor, ssr::StreamBuilder,
-};
+use super::{Mountable, Render};
+use crate::prelude::Renderer;
 use std::{
     any::{Any, TypeId},
     fmt::Debug,
 };
-#[cfg(feature = "ssr")]
-use std::{future::Future, pin::Pin};
 
 /// A type-erased view. This can be used if control flow requires that multiple different types of
 /// view must be received, and it is either impossible or too cumbersome to use the `EitherOf___`
@@ -24,52 +15,32 @@ use std::{future::Future, pin::Pin};
 /// Generally speaking, using `AnyView` restricts the amount of information available to the
 /// compiler and should be limited to situations in which it is necessary to preserve the maximum
 /// amount of type information possible.
-pub struct AnyView {
+pub struct AnyView<R>
+where
+    R: Renderer,
+{
     type_id: TypeId,
     value: Box<dyn Any + Send>,
-
-    // The fields below are cfg-gated so they will not be included in WASM bundles if not needed.
-    // Ordinarily, the compiler can simply omit this dead code because the methods are not called.
-    // With this type-erased wrapper, however, the compiler is not *always* able to correctly
-    // eliminate that code.
-    #[cfg(feature = "ssr")]
-    html_len: usize,
-    #[cfg(feature = "ssr")]
-    to_html: fn(Box<dyn Any>, &mut String, &mut Position, bool, bool),
-    #[cfg(feature = "ssr")]
-    to_html_async:
-        fn(Box<dyn Any>, &mut StreamBuilder, &mut Position, bool, bool),
-    #[cfg(feature = "ssr")]
-    to_html_async_ooo:
-        fn(Box<dyn Any>, &mut StreamBuilder, &mut Position, bool, bool),
-    build: fn(Box<dyn Any>) -> AnyViewState,
-    rebuild: fn(TypeId, Box<dyn Any>, &mut AnyViewState),
-    #[cfg(feature = "ssr")]
-    #[allow(clippy::type_complexity)]
-    resolve: fn(Box<dyn Any>) -> Pin<Box<dyn Future<Output = AnyView> + Send>>,
-    #[cfg(feature = "ssr")]
-    dry_resolve: fn(&mut Box<dyn Any + Send>),
-    #[cfg(feature = "hydrate")]
-    #[cfg(feature = "hydrate")]
-    #[allow(clippy::type_complexity)]
-    hydrate_from_server:
-        fn(Box<dyn Any>, &Cursor, &PositionState) -> AnyViewState,
+    build: fn(Box<dyn Any>) -> AnyViewState<R>,
+    rebuild: fn(TypeId, Box<dyn Any>, &mut AnyViewState<R>),
 }
 
 /// Retained view state for [`AnyView`].
-pub struct AnyViewState {
+pub struct AnyViewState<R>
+where
+    R: Renderer,
+{
     type_id: TypeId,
     state: Box<dyn Any>,
     unmount: fn(&mut dyn Any),
-    mount: fn(
-        &mut dyn Any,
-        parent: &crate::renderer::types::Element,
-        marker: Option<&crate::renderer::types::Node>,
-    ),
-    insert_before_this: fn(&dyn Any, child: &mut dyn Mountable) -> bool,
+    mount: fn(&mut dyn Any, parent: &R::Element, marker: Option<&R::Node>),
+    insert_before_this: fn(&dyn Any, child: &mut dyn Mountable<R>) -> bool,
 }
 
-impl Debug for AnyViewState {
+impl<R> Debug for AnyViewState<R>
+where
+    R: Renderer,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyViewState")
             .field("type_id", &self.type_id)
@@ -82,18 +53,22 @@ impl Debug for AnyViewState {
 }
 
 /// Allows converting some view into [`AnyView`].
-pub trait IntoAny {
+pub trait IntoAny<R>
+where
+    R: Renderer,
+{
     /// Converts the view into a type-erased [`AnyView`].
-    fn into_any(self) -> AnyView;
+    fn into_any(self) -> AnyView<R>;
 }
 
-fn mount_any<T>(
+fn mount_any<T, R>(
     state: &mut dyn Any,
-    parent: &crate::renderer::types::Element,
-    marker: Option<&crate::renderer::types::Node>,
+    parent: &R::Element,
+    marker: Option<&R::Node>,
 ) where
-    T: Render,
+    T: Render<R>,
     T::State: 'static,
+    R: Renderer,
 {
     let state = state
         .downcast_mut::<T::State>()
@@ -101,10 +76,11 @@ fn mount_any<T>(
     state.mount(parent, marker)
 }
 
-fn unmount_any<T>(state: &mut dyn Any)
+fn unmount_any<T, R>(state: &mut dyn Any)
 where
-    T: Render,
+    T: Render<R>,
     T::State: 'static,
+    R: Renderer,
 {
     let state = state
         .downcast_mut::<T::State>()
@@ -112,10 +88,14 @@ where
     state.unmount();
 }
 
-fn insert_before_this<T>(state: &dyn Any, child: &mut dyn Mountable) -> bool
+fn insert_before_this<T, R>(
+    state: &dyn Any,
+    child: &mut dyn Mountable<R>,
+) -> bool
 where
-    T: Render,
+    T: Render<R>,
     T::State: 'static,
+    R: Renderer,
 {
     let state = state
         .downcast_ref::<T::State>()
@@ -123,99 +103,18 @@ where
     state.insert_before_this(child)
 }
 
-impl<T> IntoAny for T
+impl<T, R> IntoAny<R> for T
 where
     T: Send,
-    T: RenderHtml + 'static,
+    T: Render<R> + 'static,
     T::State: 'static,
+    R: Renderer,
 {
     // inlining allows the compiler to remove the unused functions
     // i.e., doesn't ship HTML-generating code that isn't used
     #[inline(always)]
-    fn into_any(self) -> AnyView {
-        #[cfg(feature = "ssr")]
-        let html_len = self.html_len();
-
+    fn into_any(self) -> AnyView<R> {
         let value = Box::new(self) as Box<dyn Any + Send>;
-
-        #[cfg(feature = "ssr")]
-        let dry_resolve = |value: &mut Box<dyn Any + Send>| {
-            let value = value
-                .downcast_mut::<T>()
-                .expect("AnyView::resolve could not be downcast");
-            value.dry_resolve();
-        };
-
-        #[cfg(feature = "ssr")]
-        let resolve = |value: Box<dyn Any>| {
-            let value = value
-                .downcast::<T>()
-                .expect("AnyView::resolve could not be downcast");
-            Box::pin(async move { value.resolve().await.into_any() })
-                as Pin<Box<dyn Future<Output = AnyView> + Send>>
-        };
-        #[cfg(feature = "ssr")]
-        let to_html = |value: Box<dyn Any>,
-                       buf: &mut String,
-                       position: &mut Position,
-                       escape: bool,
-                       mark_branches: bool| {
-            let type_id = mark_branches
-                .then(|| format!("{:?}", TypeId::of::<T>()))
-                .unwrap_or_default();
-            let value = value
-                .downcast::<T>()
-                .expect("AnyView::to_html could not be downcast");
-            if mark_branches {
-                buf.open_branch(&type_id);
-            }
-            value.to_html_with_buf(buf, position, escape, mark_branches);
-            if mark_branches {
-                buf.close_branch(&type_id);
-            }
-        };
-        #[cfg(feature = "ssr")]
-        let to_html_async = |value: Box<dyn Any>,
-                             buf: &mut StreamBuilder,
-                             position: &mut Position,
-                             escape: bool,
-                             mark_branches: bool| {
-            let type_id = mark_branches
-                .then(|| format!("{:?}", TypeId::of::<T>()))
-                .unwrap_or_default();
-            let value = value
-                .downcast::<T>()
-                .expect("AnyView::to_html could not be downcast");
-            if mark_branches {
-                buf.open_branch(&type_id);
-            }
-            value.to_html_async_with_buf::<false>(
-                buf,
-                position,
-                escape,
-                mark_branches,
-            );
-            if mark_branches {
-                buf.close_branch(&type_id);
-            }
-        };
-        #[cfg(feature = "ssr")]
-        let to_html_async_ooo =
-            |value: Box<dyn Any>,
-             buf: &mut StreamBuilder,
-             position: &mut Position,
-             escape: bool,
-             mark_branches: bool| {
-                let value = value
-                    .downcast::<T>()
-                    .expect("AnyView::to_html could not be downcast");
-                value.to_html_async_with_buf::<true>(
-                    buf,
-                    position,
-                    escape,
-                    mark_branches,
-                );
-            };
         let build = |value: Box<dyn Any>| {
             let value = value
                 .downcast::<T>()
@@ -226,32 +125,15 @@ where
                 type_id: TypeId::of::<T>(),
                 state,
 
-                mount: mount_any::<T>,
-                unmount: unmount_any::<T>,
-                insert_before_this: insert_before_this::<T>,
+                mount: mount_any::<T, R>,
+                unmount: unmount_any::<T, R>,
+                insert_before_this: insert_before_this::<T, R>,
             }
         };
-        #[cfg(feature = "hydrate")]
-        let hydrate_from_server =
-            |value: Box<dyn Any>, cursor: &Cursor, position: &PositionState| {
-                let value = value
-                    .downcast::<T>()
-                    .expect("AnyView::hydrate_from_server couldn't downcast");
-                let state = Box::new(value.hydrate::<true>(cursor, position));
-
-                AnyViewState {
-                    type_id: TypeId::of::<T>(),
-                    state,
-
-                    mount: mount_any::<T>,
-                    unmount: unmount_any::<T>,
-                    insert_before_this: insert_before_this::<T>,
-                }
-            };
 
         let rebuild = |new_type_id: TypeId,
                        value: Box<dyn Any>,
-                       state: &mut AnyViewState| {
+                       state: &mut AnyViewState<R>| {
             let value = value
                 .downcast::<T>()
                 .expect("AnyView::rebuild couldn't downcast value");
@@ -274,26 +156,15 @@ where
             value,
             build,
             rebuild,
-            #[cfg(feature = "ssr")]
-            resolve,
-            #[cfg(feature = "ssr")]
-            dry_resolve,
-            #[cfg(feature = "ssr")]
-            html_len,
-            #[cfg(feature = "ssr")]
-            to_html,
-            #[cfg(feature = "ssr")]
-            to_html_async,
-            #[cfg(feature = "ssr")]
-            to_html_async_ooo,
-            #[cfg(feature = "hydrate")]
-            hydrate_from_server,
         }
     }
 }
 
-impl Render for AnyView {
-    type State = AnyViewState;
+impl<R> Render<R> for AnyView<R>
+where
+    R: Renderer,
+{
+    type State = AnyViewState<R>;
 
     fn build(self) -> Self::State {
         (self.build)(self.value)
@@ -304,162 +175,19 @@ impl Render for AnyView {
     }
 }
 
-impl AddAnyAttr for AnyView {
-    type Output<SomeNewAttr: Attribute> = Self;
-
-    fn add_any_attr<NewAttr: Attribute>(
-        self,
-        _attr: NewAttr,
-    ) -> Self::Output<NewAttr>
-    where
-        Self::Output<NewAttr>: RenderHtml,
-    {
-        todo!()
-    }
-}
-
-impl RenderHtml for AnyView {
-    type AsyncOutput = Self;
-
-    fn dry_resolve(&mut self) {
-        #[cfg(feature = "ssr")]
-        {
-            (self.dry_resolve)(&mut self.value)
-        }
-        #[cfg(not(feature = "ssr"))]
-        panic!(
-            "You are rendering AnyView to HTML without the `ssr` feature \
-             enabled."
-        );
-    }
-
-    async fn resolve(self) -> Self::AsyncOutput {
-        #[cfg(feature = "ssr")]
-        {
-            (self.resolve)(self.value).await
-        }
-        #[cfg(not(feature = "ssr"))]
-        panic!(
-            "You are rendering AnyView to HTML without the `ssr` feature \
-             enabled."
-        );
-    }
-
-    const MIN_LENGTH: usize = 0;
-
-    fn to_html_with_buf(
-        self,
-        buf: &mut String,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) {
-        #[cfg(feature = "ssr")]
-        (self.to_html)(self.value, buf, position, escape, mark_branches);
-        #[cfg(not(feature = "ssr"))]
-        {
-            _ = mark_branches;
-            _ = buf;
-            _ = position;
-            _ = escape;
-            panic!(
-                "You are rendering AnyView to HTML without the `ssr` feature \
-                 enabled."
-            );
-        }
-    }
-
-    fn to_html_async_with_buf<const OUT_OF_ORDER: bool>(
-        self,
-        buf: &mut StreamBuilder,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) where
-        Self: Sized,
-    {
-        #[cfg(feature = "ssr")]
-        if OUT_OF_ORDER {
-            (self.to_html_async_ooo)(
-                self.value,
-                buf,
-                position,
-                escape,
-                mark_branches,
-            );
-        } else {
-            (self.to_html_async)(
-                self.value,
-                buf,
-                position,
-                escape,
-                mark_branches,
-            );
-        }
-        #[cfg(not(feature = "ssr"))]
-        {
-            _ = buf;
-            _ = position;
-            _ = escape;
-            _ = mark_branches;
-            panic!(
-                "You are rendering AnyView to HTML without the `ssr` feature \
-                 enabled."
-            );
-        }
-    }
-
-    fn hydrate<const FROM_SERVER: bool>(
-        self,
-        cursor: &Cursor,
-        position: &PositionState,
-    ) -> Self::State {
-        #[cfg(feature = "hydrate")]
-        if FROM_SERVER {
-            (self.hydrate_from_server)(self.value, cursor, position)
-        } else {
-            panic!(
-                "hydrating AnyView from inside a ViewTemplate is not \
-                 supported."
-            );
-        }
-        #[cfg(not(feature = "hydrate"))]
-        {
-            _ = cursor;
-            _ = position;
-            panic!(
-                "You are trying to hydrate AnyView without the `hydrate` \
-                 feature enabled."
-            );
-        }
-    }
-
-    fn html_len(&self) -> usize {
-        #[cfg(feature = "ssr")]
-        {
-            self.html_len
-        }
-        #[cfg(not(feature = "ssr"))]
-        {
-            0
-        }
-    }
-}
-
-impl Mountable for AnyViewState {
+impl<R> Mountable<R> for AnyViewState<R>
+where
+    R: Renderer,
+{
     fn unmount(&mut self) {
         (self.unmount)(&mut *self.state)
     }
 
-    fn mount(
-        &mut self,
-        parent: &crate::renderer::types::Element,
-        marker: Option<&crate::renderer::types::Node>,
-    ) {
+    fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
         (self.mount)(&mut *self.state, parent, marker)
     }
 
-    fn insert_before_this(&self, child: &mut dyn Mountable) -> bool {
+    fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
         (self.insert_before_this)(&*self.state, child)
     }
 }

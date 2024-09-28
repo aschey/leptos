@@ -24,7 +24,6 @@ members = [
   "server_fn",
   "server_fn_macro",
   "server_fn/server_fn_macro_default",
-  "tachys",
 
   # integrations
   "integrations/actix",
@@ -37,7 +36,7 @@ members = [
   "router_macro",
   "any_error",
 ]
-exclude = ["benchmarks", "examples", "projects"]
+exclude = ["benchmarks", "examples", "projects", "tachys"]
 
 [workspace.package]
 version = "0.7.0-beta6"

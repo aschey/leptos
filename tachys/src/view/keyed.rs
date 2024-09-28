@@ -1,13 +1,5 @@
-use super::{
-    add_attr::AddAnyAttr, Mountable, Position, PositionState, Render,
-    RenderHtml,
-};
-use crate::{
-    html::attribute::Attribute,
-    hydration::Cursor,
-    renderer::{CastFrom, Rndr},
-    ssr::StreamBuilder,
-};
+use super::{Mountable, Render};
+use crate::renderer::Renderer;
 use drain_filter_polyfill::VecExt as VecDrainFilterExt;
 use indexmap::IndexSet;
 use rustc_hash::FxHasher;
@@ -16,7 +8,7 @@ use std::hash::{BuildHasherDefault, Hash};
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 
 /// Creates a keyed list of views.
-pub fn keyed<T, I, K, KF, VF, VFS, V>(
+pub fn keyed<T, I, K, KF, VF, VFS, V, R>(
     items: I,
     key_fn: KF,
     view_fn: VF,
@@ -25,9 +17,10 @@ where
     I: IntoIterator<Item = T>,
     K: Eq + Hash + 'static,
     KF: Fn(&T) -> K,
-    V: Render,
+    V: Render<R>,
     VF: Fn(usize, T) -> (VFS, V),
     VFS: Fn(usize),
+    R: Renderer,
 {
     Keyed {
         items,
@@ -51,28 +44,30 @@ where
 }
 
 /// Retained view state for a keyed list.
-pub struct KeyedState<K, VFS, V>
+pub struct KeyedState<K, VFS, V, R>
 where
     K: Eq + Hash + 'static,
     VFS: Fn(usize),
-    V: Render,
+    V: Render<R>,
+    R: Renderer,
 {
-    parent: Option<crate::renderer::types::Element>,
-    marker: crate::renderer::types::Placeholder,
+    parent: Option<R::Element>,
+    marker: R::Placeholder,
     hashed_items: IndexSet<K, BuildHasherDefault<FxHasher>>,
     rendered_items: Vec<Option<(VFS, V::State)>>,
 }
 
-impl<T, I, K, KF, VF, VFS, V> Render for Keyed<T, I, K, KF, VF, VFS, V>
+impl<T, I, K, KF, VF, VFS, V, R> Render<R> for Keyed<T, I, K, KF, VF, VFS, V>
 where
     I: IntoIterator<Item = T>,
     K: Eq + Hash + 'static,
     KF: Fn(&T) -> K,
-    V: Render,
+    V: Render<R>,
     VF: Fn(usize, T) -> (VFS, V),
     VFS: Fn(usize),
+    R: Renderer,
 {
-    type State = KeyedState<K, VFS, V>;
+    type State = KeyedState<K, VFS, V, R>;
     // TODO fallible state and try_build()/try_rebuild() here
 
     fn build(self) -> Self::State {
@@ -88,7 +83,7 @@ where
         }
         KeyedState {
             parent: None,
-            marker: Rndr::create_placeholder(),
+            marker: R::create_placeholder(),
             hashed_items,
             rendered_items,
         }
@@ -129,173 +124,14 @@ where
     }
 }
 
-impl<T, I, K, KF, VF, VFS, V> AddAnyAttr for Keyed<T, I, K, KF, VF, VFS, V>
-where
-    I: IntoIterator<Item = T> + Send,
-    K: Eq + Hash + 'static,
-    KF: Fn(&T) -> K + Send,
-    V: RenderHtml,
-    V: 'static,
-    VF: Fn(usize, T) -> (VFS, V) + Send + 'static,
-    VFS: Fn(usize) + 'static,
-    T: 'static,
-{
-    type Output<SomeNewAttr: Attribute> = Keyed<
-        T,
-        I,
-        K,
-        KF,
-        Box<
-            dyn Fn(
-                    usize,
-                    T,
-                ) -> (
-                    VFS,
-                    <V as AddAnyAttr>::Output<SomeNewAttr::CloneableOwned>,
-                ) + Send,
-        >,
-        VFS,
-        V::Output<SomeNewAttr::CloneableOwned>,
-    >;
-
-    fn add_any_attr<NewAttr: Attribute>(
-        self,
-        attr: NewAttr,
-    ) -> Self::Output<NewAttr>
-    where
-        Self::Output<NewAttr>: RenderHtml,
-    {
-        let Keyed {
-            items,
-            key_fn,
-            view_fn,
-        } = self;
-        let attr = attr.into_cloneable_owned();
-        Keyed {
-            items,
-            key_fn,
-            view_fn: Box::new(move |index, item| {
-                let (index, view) = view_fn(index, item);
-                (index, view.add_any_attr(attr.clone()))
-            }),
-        }
-    }
-}
-
-impl<T, I, K, KF, VF, VFS, V> RenderHtml for Keyed<T, I, K, KF, VF, VFS, V>
-where
-    I: IntoIterator<Item = T> + Send,
-    K: Eq + Hash + 'static,
-    KF: Fn(&T) -> K + Send,
-    V: RenderHtml + 'static,
-    VF: Fn(usize, T) -> (VFS, V) + Send + 'static,
-    VFS: Fn(usize) + 'static,
-    T: 'static,
-{
-    type AsyncOutput = Vec<V::AsyncOutput>; // TODO
-
-    const MIN_LENGTH: usize = 0;
-
-    fn dry_resolve(&mut self) {
-        // TODO...
-    }
-
-    async fn resolve(self) -> Self::AsyncOutput {
-        futures::future::join_all(self.items.into_iter().enumerate().map(
-            |(index, item)| {
-                let (_, view) = (self.view_fn)(index, item);
-                view.resolve()
-            },
-        ))
-        .await
-        .into_iter()
-        .collect::<Vec<_>>()
-    }
-
-    fn to_html_with_buf(
-        self,
-        buf: &mut String,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) {
-        for (index, item) in self.items.into_iter().enumerate() {
-            let (_, item) = (self.view_fn)(index, item);
-            item.to_html_with_buf(buf, position, escape, mark_branches);
-            *position = Position::NextChild;
-        }
-        buf.push_str("<!>");
-    }
-
-    fn to_html_async_with_buf<const OUT_OF_ORDER: bool>(
-        self,
-        buf: &mut StreamBuilder,
-        position: &mut Position,
-        escape: bool,
-        mark_branches: bool,
-    ) {
-        for (index, item) in self.items.into_iter().enumerate() {
-            let (_, item) = (self.view_fn)(index, item);
-            item.to_html_async_with_buf::<OUT_OF_ORDER>(
-                buf,
-                position,
-                escape,
-                mark_branches,
-            );
-            *position = Position::NextChild;
-        }
-        buf.push_sync("<!>");
-    }
-
-    fn hydrate<const FROM_SERVER: bool>(
-        self,
-        cursor: &Cursor,
-        position: &PositionState,
-    ) -> Self::State {
-        // get parent and position
-        let current = cursor.current();
-        let parent = if position.get() == Position::FirstChild {
-            current
-        } else {
-            Rndr::get_parent(&current)
-                .expect("first child of keyed list has no parent")
-        };
-        let parent = crate::renderer::types::Element::cast_from(parent)
-            .expect("parent of keyed list should be an element");
-
-        // build list
-        let items = self.items.into_iter();
-        let (capacity, _) = items.size_hint();
-        let mut hashed_items =
-            FxIndexSet::with_capacity_and_hasher(capacity, Default::default());
-        let mut rendered_items = Vec::new();
-        for (index, item) in items.enumerate() {
-            hashed_items.insert((self.key_fn)(&item));
-            let (set_index, view) = (self.view_fn)(index, item);
-            let item = view.hydrate::<FROM_SERVER>(cursor, position);
-            rendered_items.push(Some((set_index, item)));
-        }
-        let marker = cursor.next_placeholder(position);
-        KeyedState {
-            parent: Some(parent),
-            marker,
-            hashed_items,
-            rendered_items,
-        }
-    }
-}
-
-impl<K, VFS, V> Mountable for KeyedState<K, VFS, V>
+impl<K, VFS, V, R> Mountable<R> for KeyedState<K, VFS, V, R>
 where
     K: Eq + Hash + 'static,
     VFS: Fn(usize),
-    V: Render,
+    V: Render<R>,
+    R: Renderer,
 {
-    fn mount(
-        &mut self,
-        parent: &crate::renderer::types::Element,
-        marker: Option<&crate::renderer::types::Node>,
-    ) {
+    fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
         self.parent = Some(parent.clone());
         for (_, item) in self.rendered_items.iter_mut().flatten() {
             item.mount(parent, marker);
@@ -310,7 +146,7 @@ where
         self.marker.unmount();
     }
 
-    fn insert_before_this(&self, child: &mut dyn Mountable) -> bool {
+    fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
         self.rendered_items
             .first()
             .map(|item| {
@@ -503,16 +339,17 @@ impl Default for DiffOpAddMode {
     }
 }
 
-fn apply_diff<T, VFS, V>(
-    parent: &crate::renderer::types::Element,
-    marker: &crate::renderer::types::Placeholder,
+fn apply_diff<T, VFS, V, R>(
+    parent: &R::Element,
+    marker: &R::Placeholder,
     diff: Diff,
     children: &mut Vec<Option<(VFS, V::State)>>,
     view_fn: impl Fn(usize, T) -> (VFS, V),
     mut items: Vec<Option<T>>,
 ) where
     VFS: Fn(usize),
-    V: Render,
+    V: Render<R>,
+    R: Renderer,
 {
     // The order of cmds needs to be:
     // 1. Clear
