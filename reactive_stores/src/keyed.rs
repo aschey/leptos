@@ -10,7 +10,7 @@ use reactive_graph::{
     },
     traits::{
         DefinedAt, IsDisposed, Notify, ReadUntracked, Track, UntrackableGuard,
-        Writeable,
+        Write,
     },
 };
 use std::{
@@ -312,7 +312,7 @@ where
     }
 }
 
-impl<Inner, Prev, K, T> Writeable for KeyedSubfield<Inner, Prev, K, T>
+impl<Inner, Prev, K, T> Write for KeyedSubfield<Inner, Prev, K, T>
 where
     Self: Clone,
     for<'a> &'a T: IntoIterator,
@@ -574,7 +574,7 @@ where
     }
 }
 
-impl<Inner, Prev, K, T> Writeable for AtKeyed<Inner, Prev, K, T>
+impl<Inner, Prev, K, T> Write for AtKeyed<Inner, Prev, K, T>
 where
     K: Debug + Send + Sync + PartialEq + Eq + Hash + 'static,
     KeyedSubfield<Inner, Prev, K, T>: Clone,
@@ -679,6 +679,21 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.keys
             .pop_front()
+            .map(|key| AtKeyed::new(self.inner.clone(), key))
+    }
+}
+
+impl<Inner, Prev, K, T> DoubleEndedIterator
+    for StoreFieldKeyedIter<Inner, Prev, K, T>
+where
+    Inner: StoreField<Value = Prev> + Clone + 'static,
+    T: IndexMut<usize> + 'static,
+    T::Output: Sized + 'static,
+    for<'a> &'a T: IntoIterator,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.keys
+            .pop_back()
             .map(|key| AtKeyed::new(self.inner.clone(), key))
     }
 }
