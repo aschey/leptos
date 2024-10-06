@@ -11,7 +11,7 @@
 pub mod prelude {
     pub use crate::{
         renderer::Renderer,
-        view::{any_view::IntoAny, Mountable, Render},
+        view::{any_view::IntoAny, IntoRender, Mountable, Render},
     };
 }
 

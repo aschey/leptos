@@ -165,3 +165,24 @@ pub enum Position {
     /// This is the last child of its parent.
     LastChild,
 }
+
+/// Declares that this type can be converted into some other type, which can be renderered.
+pub trait IntoRender<R> {
+    /// The renderable type into which this type can be converted.
+    type Output;
+
+    /// Consumes this value, transforming it into the renderable type.
+    fn into_render(self) -> Self::Output;
+}
+
+impl<T, R> IntoRender<R> for T
+where
+    T: Render<R>,
+    R: Renderer,
+{
+    type Output = Self;
+
+    fn into_render(self) -> Self::Output {
+        self
+    }
+}

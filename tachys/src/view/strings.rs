@@ -31,7 +31,7 @@ where
     }
 }
 
-impl<'a, R> Mountable<R> for StrState<'a, R>
+impl<R> Mountable<R> for StrState<'_, R>
 where
     R: Renderer,
 {
@@ -215,7 +215,7 @@ where
     }
 }
 
-impl<'a, R> Mountable<R> for CowStrState<'a, R>
+impl<R> Mountable<R> for CowStrState<'_, R>
 where
     R: Renderer,
 {

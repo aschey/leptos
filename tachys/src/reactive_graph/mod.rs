@@ -172,11 +172,10 @@ mod stable {
     use super::RenderEffectState;
     use crate::{
         renderer::Renderer,
-        view::{Mountable, Position, PositionState, Render},
+        view::{Mountable, Render},
     };
     use reactive_graph::{
         computed::{ArcMemo, Memo},
-        effect::RenderEffect,
         owner::Storage,
         signal::{ArcReadSignal, ArcRwSignal, ReadSignal, RwSignal},
         traits::Get,
