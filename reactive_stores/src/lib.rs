@@ -10,6 +10,7 @@ use reactive_graph::{
         Write,
     },
 };
+pub use reactive_stores_macro::*;
 use rustc_hash::FxHashMap;
 use std::{
     any::Any,
@@ -171,12 +172,26 @@ impl KeyMap {
     where
         K: Debug + Hash + PartialEq + Eq + Send + Sync + 'static,
     {
+        // this incredibly defensive mechanism takes the guard twice
+        // on initialization. unfortunately, this is because `initialize`, on
+        // a nested keyed field can, when being initialized), can in fact try
+        // to take the lock again, as we try to insert the keys of the parent
+        // while inserting the keys on this child.
+        //
+        // see here https://github.com/leptos-rs/leptos/issues/3086
         let mut guard = self.0.write().or_poisoned();
-        let entry = guard
-            .entry(path)
-            .or_insert_with(|| Box::new(FieldKeys::new(initialize())));
-        let entry = entry.downcast_mut::<FieldKeys<K>>()?;
-        Some(fun(entry))
+        if guard.contains_key(&path) {
+            let entry = guard.get_mut(&path)?;
+            let entry = entry.downcast_mut::<FieldKeys<K>>()?;
+            Some(fun(entry))
+        } else {
+            drop(guard);
+            let keys = Box::new(FieldKeys::new(initialize()));
+            let mut guard = self.0.write().or_poisoned();
+            let entry = guard.entry(path).or_insert(keys);
+            let entry = entry.downcast_mut::<FieldKeys<K>>()?;
+            Some(fun(entry))
+        }
     }
 }
 
@@ -430,7 +445,6 @@ mod tests {
         effect::Effect,
         traits::{Read, ReadUntracked, Set, Update, Write},
     };
-    use reactive_stores_macro::{Patch, Store};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
