@@ -1,19 +1,15 @@
 use crate::{
     prelude::Renderer,
-    view::{
-        iterators::OptionState, Mountable, Render,
-    },
+    view::{iterators::OptionState, Mountable, Render},
 };
 use any_spawner::Executor;
 use futures::{
-    future::{AbortHandle, Abortable}, FutureExt,
+    future::{AbortHandle, Abortable},
+    FutureExt,
 };
 use or_poisoned::OrPoisoned;
 use reactive_graph::{
-    computed::{
-        suspense::SuspenseContext,
-        ScopedFuture,
-    },
+    computed::{suspense::SuspenseContext, ScopedFuture},
     graph::{
         AnySource, AnySubscriber, Observer, ReactiveNode, Source, Subscriber,
         ToAnySubscriber, WithObserver,
@@ -32,10 +28,9 @@ use std::{
 use throw_error::ErrorHook;
 
 /// A suspended `Future`, which can be used in the view.
-#[derive(Clone)]
-pub struct Suspend<Fut> {
+pub struct Suspend<T> {
     pub(crate) subscriber: SuspendSubscriber,
-    pub(crate) inner: Pin<Box<ScopedFuture<Fut>>>,
+    pub(crate) inner: Pin<Box<dyn Future<Output = T> + Send>>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,9 +105,9 @@ impl ToAnySubscriber for SuspendSubscriber {
     }
 }
 
-impl<Fut> Suspend<Fut> {
+impl<T> Suspend<T> {
     /// Creates a new suspended view.
-    pub fn new(fut: Fut) -> Self {
+    pub fn new(fut: impl Future<Output = T> + Send + 'static) -> Self {
         let subscriber = SuspendSubscriber::new();
         let any_subscriber = subscriber.to_any_subscriber();
         let inner =
@@ -121,7 +116,7 @@ impl<Fut> Suspend<Fut> {
     }
 }
 
-impl<Fut> Debug for Suspend<Fut> {
+impl<T> Debug for Suspend<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Suspend").finish()
     }
@@ -154,13 +149,12 @@ where
     }
 }
 
-impl<Fut, R> Render<R> for Suspend<Fut>
+impl<T, R> Render<R> for Suspend<T>
 where
-    Fut: Future + 'static,
-    Fut::Output: Render<R>,
+    T: Render<R> + 'static,
     R: Renderer,
 {
-    type State = SuspendState<Fut::Output, R>;
+    type State = SuspendState<T, R>;
 
     fn build(self) -> Self::State {
         let Self { subscriber, inner } = self;
