@@ -1,6 +1,6 @@
 [package]
 name = "tachys"
-version = "0.1.0-gamma3"
+version = "0.1.0-rc0"
 authors = ["Greg Johnston"]
 license = "MIT"
 readme = "../README.md"
@@ -10,14 +10,14 @@ rust-version = "1.76"
 edition = "2021"
 
 [dependencies]
-throw_error = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740" }
-any_spawner = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740", optional = true }
-const_str_slice_concat = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740" }
-either_of = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740" }
-next_tuple = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740" }
-or_poisoned = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740" }
-reactive_graph = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740", optional = true }
-oco_ref = { git = "https://github.com/leptos-rs/leptos", rev = "ee66f6c3957d79bcf214cdf275daca605b93c740", optional = true }
+throw_error = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705" }
+any_spawner = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705", optional = true }
+const_str_slice_concat = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705" }
+either_of = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705" }
+next_tuple = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705" }
+or_poisoned = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705" }
+reactive_graph = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705", optional = true }
+oco_ref = { git = "https://github.com/leptos-rs/leptos", rev = "7b8cd90a6ef113495d0efc5fb8676bd0694a7705", optional = true }
 once_cell = "1.19"
 paste = "1.0"
 drain_filter_polyfill = "0.1.3"
@@ -35,11 +35,11 @@ tokio-test = "0.4.4"
 tokio = { version = "1.39", features = ["rt", "macros"] }
 
 [features]
+tracing = ["dep:tracing"]
 default = ["oco", "reactive_graph", "tracing"]             # enables event delegation
 oco = ["dep:oco_ref"]
 nightly = ["reactive_graph/nightly"]
 reactive_graph = ["dep:reactive_graph", "dep:any_spawner"]
-tracing = ["dep:tracing"]
 
 [package.metadata.cargo-all-features]
 denylist = ["tracing"]

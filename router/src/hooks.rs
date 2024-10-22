@@ -272,37 +272,12 @@ pub fn use_navigate() -> impl Fn(&str, NavigateOptions) + Clone {
     move |path: &str, options: NavigateOptions| cx.navigate(path, options)
 }
 
-/*
-/// Returns a signal that tells you whether you are currently navigating backwards.
-pub(crate) fn use_is_back_navigation() -> ReadSignal<bool> {
-    let router = use_router();
-    router.inner.is_back.read_only()
+/// Returns a reactive string that contains the route that was matched for
+/// this [`Route`](crate::components::Route).
+#[track_caller]
+pub fn use_matched() -> Memo<String> {
+    use_context::<Matched>()
+        .expect("use_matched called outside a matched Route")
+        .0
+        .into()
 }
-*/
-
-/* TODO check how this is used in 0.6 and use it
-/// Resolves a redirect location to an (absolute) URL.
-pub(crate) fn resolve_redirect_url(loc: &str) -> Option<web_sys::Url> {
-    let origin = match window().location().origin() {
-        Ok(origin) => origin,
-        Err(e) => {
-            leptos::logging::error!("Failed to get origin: {:#?}", e);
-            return None;
-        }
-    };
-
-    // TODO: Use server function's URL as base instead.
-    let base = origin;
-
-    match web_sys::Url::new_with_base(loc, &base) {
-        Ok(url) => Some(url),
-        Err(e) => {
-            leptos::logging::error!(
-                "Invalid redirect location: {}",
-                e.as_string().unwrap_or_default(),
-            );
-            None
-        }
-    }
-}
-*/

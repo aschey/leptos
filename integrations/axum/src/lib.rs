@@ -66,12 +66,14 @@ use leptos_router::{
     components::provide_server_redirect,
     location::RequestUrl,
     static_routes::{RegenerationFn, StaticParamsMap},
-    PathSegment, RouteList, RouteListing, SsrMode,
+    ExpandOptionals, PathSegment, RouteList, RouteListing, SsrMode,
 };
 #[cfg(feature = "default")]
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use server_fn::{redirect::REDIRECT_HEADER, ServerFnError};
+use server_fn::{
+    axum::unregister_server_fns, redirect::REDIRECT_HEADER, ServerFnError,
+};
 #[cfg(feature = "default")]
 use std::path::Path;
 use std::{fmt::Debug, io, pin::Pin, sync::Arc};
@@ -1265,23 +1267,34 @@ pub struct AxumRouteListing {
     regenerate: Vec<RegenerationFn>,
 }
 
-impl From<RouteListing> for AxumRouteListing {
-    fn from(value: RouteListing) -> Self {
-        let path = value.path().to_axum_path();
-        let path = if path.is_empty() {
-            "/".to_string()
-        } else {
-            path
-        };
-        let mode = value.mode();
-        let methods = value.methods().collect();
-        let regenerate = value.regenerate().into();
-        Self {
-            path,
-            mode: mode.clone(),
-            methods,
-            regenerate,
-        }
+trait IntoRouteListing: Sized {
+    fn into_route_listing(self) -> Vec<AxumRouteListing>;
+}
+
+impl IntoRouteListing for RouteListing {
+    fn into_route_listing(self) -> Vec<AxumRouteListing> {
+        self.path()
+            .to_vec()
+            .expand_optionals()
+            .into_iter()
+            .map(|path| {
+                let path = path.to_axum_path();
+                let path = if path.is_empty() {
+                    "/".to_string()
+                } else {
+                    path
+                };
+                let mode = self.mode();
+                let methods = self.methods().collect();
+                let regenerate = self.regenerate().into();
+                AxumRouteListing {
+                    path,
+                    mode: mode.clone(),
+                    methods,
+                    regenerate,
+                }
+            })
+            .collect()
     }
 }
 
@@ -1338,6 +1351,11 @@ where
     init_executor();
     let owner = Owner::new_root(Some(Arc::new(SsrSharedContext::new())));
 
+    // remove any server fns that match excluded paths
+    if let Some(excluded) = &excluded_routes {
+        unregister_server_fns(excluded);
+    }
+
     let routes = owner
         .with(|| {
             // stub out a path for now
@@ -1360,7 +1378,7 @@ where
     let mut routes = routes
         .into_inner()
         .into_iter()
-        .map(AxumRouteListing::from)
+        .flat_map(IntoRouteListing::into_route_listing)
         .collect::<Vec<_>>();
 
     (
@@ -1693,7 +1711,7 @@ trait AxumPath {
     fn to_axum_path(&self) -> String;
 }
 
-impl AxumPath for &[PathSegment] {
+impl AxumPath for Vec<PathSegment> {
     fn to_axum_path(&self) -> String {
         let mut path = String::new();
         for segment in self.iter() {
@@ -1713,6 +1731,14 @@ impl AxumPath for &[PathSegment] {
                     path.push_str(s);
                 }
                 PathSegment::Unit => {}
+                PathSegment::OptionalParam(_) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!(
+                        "to_axum_path should only be called on expanded \
+                         paths, which do not have OptionalParam any longer"
+                    );
+                    Default::default()
+                }
             }
         }
         path
@@ -1993,7 +2019,7 @@ where
     move |uri: Uri, State(options): State<S>, req: Request<Body>| {
         Box::pin(async move {
             let options = LeptosOptions::from_ref(&options);
-            let res = get_static_file(uri, &options.site_root);
+            let res = get_static_file(uri, &options.site_root, req.headers());
             let res = res.await.unwrap();
 
             if res.status() == StatusCode::OK {
@@ -2027,14 +2053,26 @@ where
 async fn get_static_file(
     uri: Uri,
     root: &str,
+    headers: &HeaderMap<HeaderValue>,
 ) -> Result<Response<Body>, (StatusCode, String)> {
-    let req = Request::builder()
-        .uri(uri.clone())
-        .body(Body::empty())
-        .unwrap();
+    use axum::http::header::ACCEPT_ENCODING;
+
+    let req = Request::builder().uri(uri);
+
+    let req = match headers.get(ACCEPT_ENCODING) {
+        Some(value) => req.header(ACCEPT_ENCODING, value),
+        None => req,
+    };
+
+    let req = req.body(Body::empty()).unwrap();
     // `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
     // This path is relative to the cargo root
-    match ServeDir::new(root).oneshot(req).await {
+    match ServeDir::new(root)
+        .precompressed_gzip()
+        .precompressed_br()
+        .oneshot(req)
+        .await
+    {
         Ok(res) => Ok(res.into_response()),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,

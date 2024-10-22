@@ -76,6 +76,38 @@ impl<T, Ser> Debug for ArcResource<T, Ser> {
     }
 }
 
+impl<T, Ser> From<ArcResource<T, Ser>> for Resource<T, Ser>
+where
+    T: Send + Sync,
+{
+    #[track_caller]
+    fn from(arc_resource: ArcResource<T, Ser>) -> Self {
+        Resource {
+            ser: PhantomData,
+            data: arc_resource.data.into(),
+            refetch: arc_resource.refetch.into(),
+            #[cfg(debug_assertions)]
+            defined_at: Location::caller(),
+        }
+    }
+}
+
+impl<T, Ser> From<Resource<T, Ser>> for ArcResource<T, Ser>
+where
+    T: Send + Sync,
+{
+    #[track_caller]
+    fn from(resource: Resource<T, Ser>) -> Self {
+        ArcResource {
+            ser: PhantomData,
+            data: resource.data.into(),
+            refetch: resource.refetch.into(),
+            #[cfg(debug_assertions)]
+            defined_at: Location::caller(),
+        }
+    }
+}
+
 impl<T, Ser> DefinedAt for ArcResource<T, Ser> {
     fn defined_at(&self) -> Option<&'static Location<'static>> {
         #[cfg(debug_assertions)]
@@ -129,22 +161,23 @@ where
         #[cfg(all(feature = "hydration", debug_assertions))]
         {
             use reactive_graph::{
-                computed::suspense::SuspenseContext, owner::use_context,
+                computed::suspense::SuspenseContext, effect::in_effect_scope,
+                owner::use_context,
             };
-            let suspense = use_context::<SuspenseContext>();
-            if suspense.is_none() {
+            if !in_effect_scope() && use_context::<SuspenseContext>().is_none()
+            {
                 let location = std::panic::Location::caller();
                 reactive_graph::log_warning(format_args!(
                     "At {location}, you are reading a resource in `hydrate` \
-                     mode outside a <Suspense/> or <Transition/>. This can \
-                     cause hydration mismatch errors and loses out on a \
-                     significant performance optimization. To fix this issue, \
-                     you can either: \n1. Wrap the place where you read the \
-                     resource in a <Suspense/> or <Transition/> component, or \
-                     \n2. Switch to using ArcLocalResource::new(), which will \
-                     wait to load the resource until the app is hydrated on \
-                     the client side. (This will have worse performance in \
-                     most cases.)",
+                     mode outside a <Suspense/> or <Transition/> or effect. \
+                     This can cause hydration mismatch errors and loses out \
+                     on a significant performance optimization. To fix this \
+                     issue, you can either: \n1. Wrap the place where you \
+                     read the resource in a <Suspense/> or <Transition/> \
+                     component, or \n2. Switch to using \
+                     ArcLocalResource::new(), which will wait to load the \
+                     resource until the app is hydrated on the client side. \
+                     (This will have worse performance in most cases.)",
                 ));
             }
         }
@@ -641,22 +674,23 @@ where
         #[cfg(all(feature = "hydration", debug_assertions))]
         {
             use reactive_graph::{
-                computed::suspense::SuspenseContext, owner::use_context,
+                computed::suspense::SuspenseContext, effect::in_effect_scope,
+                owner::use_context,
             };
-            let suspense = use_context::<SuspenseContext>();
-            if suspense.is_none() {
+            if !in_effect_scope() && use_context::<SuspenseContext>().is_none()
+            {
                 let location = std::panic::Location::caller();
                 reactive_graph::log_warning(format_args!(
                     "At {location}, you are reading a resource in `hydrate` \
-                     mode outside a <Suspense/> or <Transition/>. This can \
-                     cause hydration mismatch errors and loses out on a \
-                     significant performance optimization. To fix this issue, \
-                     you can either: \n1. Wrap the place where you read the \
-                     resource in a <Suspense/> or <Transition/> component, or \
-                     \n2. Switch to using LocalResource::new(), which will \
-                     wait to load the resource until the app is hydrated on \
-                     the client side. (This will have worse performance in \
-                     most cases.)",
+                     mode outside a <Suspense/> or <Transition/> or effect. \
+                     This can cause hydration mismatch errors and loses out \
+                     on a significant performance optimization. To fix this \
+                     issue, you can either: \n1. Wrap the place where you \
+                     read the resource in a <Suspense/> or <Transition/> \
+                     component, or \n2. Switch to using LocalResource::new(), \
+                     which will wait to load the resource until the app is \
+                     hydrated on the client side. (This will have worse \
+                     performance in most cases.)",
                 ));
             }
         }

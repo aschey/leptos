@@ -5,16 +5,13 @@ use either_of::*;
 use std::borrow::Cow;
 
 impl MatchParams for () {
-    type Params = iter::Empty<(Cow<'static, str>, String)>;
-
-    fn to_params(&self) -> Self::Params {
-        iter::empty()
+    fn to_params(&self) -> Vec<(Cow<'static, str>, String)> {
+        Vec::new()
     }
 }
 
 impl MatchInterface for () {
     type Child = ();
-    type View = ();
 
     fn as_id(&self) -> RouteMatchId {
         RouteMatchId(0)
@@ -24,16 +21,13 @@ impl MatchInterface for () {
         ""
     }
 
-    fn into_view_and_child(
-        self,
-    ) -> (impl ChooseView<Output = Self::View>, Option<Self::Child>) {
+    fn into_view_and_child(self) -> (impl ChooseView, Option<Self::Child>) {
         ((), None)
     }
 }
 
 impl MatchNestedRoutes for () {
     type Data = ();
-    type View = ();
     type Match = ();
 
     fn match_nested<'a>(
@@ -57,9 +51,7 @@ impl<A> MatchParams for (A,)
 where
     A: MatchParams,
 {
-    type Params = A::Params;
-
-    fn to_params(&self) -> Self::Params {
+    fn to_params(&self) -> Vec<(Cow<'static, str>, String)> {
         self.0.to_params()
     }
 }
@@ -69,7 +61,6 @@ where
     A: MatchInterface + 'static,
 {
     type Child = A::Child;
-    type View = A::View;
 
     fn as_id(&self) -> RouteMatchId {
         self.0.as_id()
@@ -79,9 +70,7 @@ where
         self.0.as_matched()
     }
 
-    fn into_view_and_child(
-        self,
-    ) -> (impl ChooseView<Output = Self::View>, Option<Self::Child>) {
+    fn into_view_and_child(self) -> (impl ChooseView, Option<Self::Child>) {
         self.0.into_view_and_child()
     }
 }
@@ -91,7 +80,6 @@ where
     A: MatchNestedRoutes + 'static,
 {
     type Data = A::Data;
-    type View = A::View;
     type Match = A::Match;
 
     fn match_nested<'a>(
@@ -113,15 +101,10 @@ where
     A: MatchParams,
     B: MatchParams,
 {
-    type Params = Either<
-        <A::Params as IntoIterator>::IntoIter,
-        <B::Params as IntoIterator>::IntoIter,
-    >;
-
-    fn to_params(&self) -> Self::Params {
+    fn to_params(&self) -> Vec<(Cow<'static, str>, String)> {
         match self {
-            Either::Left(i) => Either::Left(i.to_params().into_iter()),
-            Either::Right(i) => Either::Right(i.to_params().into_iter()),
+            Either::Left(i) => i.to_params(),
+            Either::Right(i) => i.to_params(),
         }
     }
 }
@@ -132,7 +115,6 @@ where
     B: MatchInterface,
 {
     type Child = Either<A::Child, B::Child>;
-    type View = Either<A::View, B::View>;
 
     fn as_id(&self) -> RouteMatchId {
         match self {
@@ -148,9 +130,7 @@ where
         }
     }
 
-    fn into_view_and_child(
-        self,
-    ) -> (impl ChooseView<Output = Self::View>, Option<Self::Child>) {
+    fn into_view_and_child(self) -> (impl ChooseView, Option<Self::Child>) {
         match self {
             Either::Left(i) => {
                 let (view, child) = i.into_view_and_child();
@@ -170,7 +150,6 @@ where
     B: MatchNestedRoutes,
 {
     type Data = (A::Data, B::Data);
-    type View = Either<A::View, B::View>;
     type Match = Either<A::Match, B::Match>;
 
     fn match_nested<'a>(
@@ -220,13 +199,9 @@ macro_rules! tuples {
         where
 			$($ty: MatchParams),*,
         {
-            type Params = $either<$(
-                <$ty::Params as IntoIterator>::IntoIter,
-            )*>;
-
-            fn to_params(&self) -> Self::Params {
+            fn to_params(&self) -> Vec<(Cow<'static, str>, String)> {
                 match self {
-                    $($either::$ty(i) => $either::$ty(i.to_params().into_iter()),)*
+                    $($either::$ty(i) => i.to_params(),)*
                 }
             }
         }
@@ -236,7 +211,6 @@ macro_rules! tuples {
             $($ty: MatchInterface + 'static),*,
         {
             type Child = $either<$($ty::Child,)*>;
-            type View = $either<$($ty::View,)*>;
 
             fn as_id(&self) -> RouteMatchId {
                 match self {
@@ -253,7 +227,7 @@ macro_rules! tuples {
             fn into_view_and_child(
                 self,
             ) -> (
-                impl ChooseView<Output = Self::View>,
+                impl ChooseView,
                 Option<Self::Child>,
             ) {
                 match self {
@@ -270,7 +244,6 @@ macro_rules! tuples {
 			$($ty: MatchNestedRoutes + 'static),*,
         {
             type Data = ($($ty::Data,)*);
-            type View = $either<$($ty::View,)*>;
             type Match = $either<$($ty::Match,)*>;
 
             fn match_nested<'a>(&'a self, path: &'a str) -> (Option<(RouteMatchId, Self::Match)>, &'a str) {

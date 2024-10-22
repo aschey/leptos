@@ -247,6 +247,7 @@ impl StaticPath {
                     }
                     paths = new_paths;
                 }
+                OptionalParam(_) => todo!(),
             }
         }
         paths
@@ -353,7 +354,7 @@ impl ResolvedStaticPath {
                             eprintln!("{e}");
                         }
                     }
-                    drop(owner);
+                    owner.unset();
                 }
             }
         });
