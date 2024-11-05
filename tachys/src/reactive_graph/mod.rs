@@ -213,6 +213,7 @@ mod stable {
 
     macro_rules! signal_impl_arena {
         ($sig:ident $dry_resolve:literal) => {
+            #[allow(deprecated)]
             impl<V, S, R> Render<R> for $sig<V, S>
             where
                 $sig<V, S>: Get<Value = V>,
