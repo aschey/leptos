@@ -1,6 +1,6 @@
 [package]
 name = "throw_error"
-version = "0.2.0-rc0"
+version = "0.2.0-rc1"
 authors = ["Greg Johnston"]
 license = "MIT"
 readme = "../README.md"
@@ -10,4 +10,4 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-pin-project-lite = "0.2.14"
+pin-project-lite = "0.2.15"

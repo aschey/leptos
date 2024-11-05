@@ -2,6 +2,7 @@ use super::{Mountable, Render};
 use crate::prelude::Renderer;
 use either_of::Either;
 use itertools::Itertools;
+use std::marker::PhantomData;
 
 /// Retained view state for an `Option`.
 pub type OptionState<T, R> =
@@ -118,6 +119,64 @@ where
             state.mount(parent, marker);
         }
         self.marker.mount(parent, marker);
+    }
+
+    fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
+        if let Some(first) = self.states.first() {
+            first.insert_before_this(child)
+        } else {
+            false
+        }
+    }
+}
+
+impl<T, R, const N: usize> Render<R> for [T; N]
+where
+    T: Render<R>,
+    R: Renderer,
+{
+    type State = ArrayState<T::State, R, N>;
+
+    fn build(self) -> Self::State {
+        Self::State {
+            states: self.map(T::build),
+            _phantom: Default::default(),
+        }
+    }
+
+    fn rebuild(self, state: &mut Self::State) {
+        let Self::State { states, .. } = state;
+        let old = states;
+        // this is an unkeyed diff
+        self.into_iter()
+            .zip(old.iter_mut())
+            .for_each(|(new, old)| T::rebuild(new, old));
+    }
+}
+
+/// Retained view state for a `Vec<_>`.
+pub struct ArrayState<T, R, const N: usize>
+where
+    T: Mountable<R>,
+    R: Renderer,
+{
+    states: [T; N],
+    _phantom: PhantomData<R>,
+}
+
+impl<T, R, const N: usize> Mountable<R> for ArrayState<T, R, N>
+where
+    T: Mountable<R>,
+    R: Renderer,
+{
+    fn unmount(&mut self) {
+        self.states.iter_mut().for_each(Mountable::unmount);
+    }
+
+    fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
+        for state in self.states.iter_mut() {
+            state.mount(parent, marker);
+        }
     }
 
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {

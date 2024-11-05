@@ -23,7 +23,7 @@ where
 
     fn rebuild(self, state: &mut Self::State) {
         let OcoStrState { node, str } = state;
-        if &self == str {
+        if &self != str {
             R::set_text(node, &self);
             *str = self;
         }

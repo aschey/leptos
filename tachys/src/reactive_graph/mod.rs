@@ -174,12 +174,14 @@ mod stable {
         renderer::Renderer,
         view::{Mountable, Render},
     };
+    #[allow(deprecated)]
+    use reactive_graph::wrappers::read::MaybeSignal;
     use reactive_graph::{
         computed::{ArcMemo, Memo},
         owner::Storage,
         signal::{ArcReadSignal, ArcRwSignal, ReadSignal, RwSignal},
         traits::Get,
-        wrappers::read::{ArcSignal, MaybeSignal, Signal},
+        wrappers::read::{ArcSignal, Signal},
     };
 
     macro_rules! signal_impl {
