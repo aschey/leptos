@@ -23,8 +23,11 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
 };
 use syn::{
-    spanned::Spanned, Expr, Expr::Tuple, ExprArray, ExprLit, ExprRange, Lit,
-    LitStr, RangeLimits, Stmt,
+    punctuated::Pair::{End, Punctuated},
+    spanned::Spanned,
+    Expr,
+    Expr::Tuple,
+    ExprArray, ExprLit, ExprRange, Lit, LitStr, RangeLimits, Stmt,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -194,7 +197,7 @@ enum InertElementBuilder<'a> {
     },
 }
 
-impl<'a> ToTokens for InertElementBuilder<'a> {
+impl ToTokens for InertElementBuilder<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
             InertElementBuilder::GlobalClass { strs, .. } => {
@@ -216,7 +219,7 @@ enum GlobalClassItem<'a> {
     String(String),
 }
 
-impl<'a> ToTokens for GlobalClassItem<'a> {
+impl ToTokens for GlobalClassItem<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let addl_tokens = match self {
             GlobalClassItem::Global(v) => v.to_token_stream(),
@@ -998,10 +1001,14 @@ pub(crate) fn attribute_absolute(
 ) -> Option<TokenStream> {
     let key = node.key.to_string();
     let contains_dash = key.contains('-');
-    let attr_aira = key.starts_with("attr:aria-");
+    let attr_colon = key.starts_with("attr:")
+        || key.starts_with("style:")
+        || key.starts_with("class:")
+        || key.starts_with("prop:")
+        || key.starts_with("use:");
     // anything that follows the x:y pattern
     match &node.key {
-        NodeName::Punctuated(parts) if !contains_dash || attr_aira => {
+        NodeName::Punctuated(parts) if !contains_dash || attr_colon => {
             if parts.len() >= 2 {
                 let id = &parts[0];
                 match id {
@@ -1010,7 +1017,8 @@ pub(crate) fn attribute_absolute(
                         if id == "let" || id == "clone" {
                             None
                         } else if id == "attr" {
-                        let value = attribute_value(node, true);
+                            let value = attribute_value(node, true);
+                            let multipart = parts.len() > 2;
                             let key = &parts[1];
                             let key_name = key.to_string();
                             if key_name == "class" || key_name == "style" {
@@ -1025,6 +1033,15 @@ pub(crate) fn attribute_absolute(
                                 let key = Ident::new(&fn_name, key.span());
                                 Some(
                                     quote! { ::leptos::tachys::html::attribute::#key(#value) },
+                                )
+                            } else if multipart {
+                                // e.g., attr:data-foo="bar"
+                                let key_name = parts.pairs().skip(1).map(|p| match p {
+                                    Punctuated(n, p) => format!("{n}{p}"),
+                                    End(n) => n.to_string(),
+                                }).collect::<String>();
+                                Some(
+                                    quote! { ::leptos::tachys::html::attribute::custom::custom_attribute(#key_name, #value) },
                                 )
                             } else {
                                 Some(

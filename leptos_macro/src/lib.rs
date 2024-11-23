@@ -1,3 +1,5 @@
+//! Macros for use with the Leptos framework.
+
 #![cfg_attr(feature = "nightly", feature(proc_macro_span))]
 #![forbid(unsafe_code)]
 // to prevent warnings from popping up when a nightly feature is stabilized
@@ -5,6 +7,7 @@
 // FIXME? every use of quote! {} is warning here -- false positive?
 #![allow(unknown_lints)]
 #![allow(private_macro_use)]
+#![deny(missing_docs)]
 
 #[macro_use]
 extern crate proc_macro_error2;
@@ -269,8 +272,8 @@ pub fn view(tokens: TokenStream) -> TokenStream {
     view_macro_impl(tokens, false)
 }
 
-/// The `template` macro behaves like [`view`], except that it wraps the entire tree in a
-/// [`ViewTemplate`](leptos::prelude::ViewTemplate). This optimizes creation speed by rendering
+/// The `template` macro behaves like [`view`](view!), except that it wraps the entire tree in a
+/// [`ViewTemplate`](https://docs.rs/leptos/0.7.0-gamma3/leptos/prelude/struct.ViewTemplate.html). This optimizes creation speed by rendering
 /// most of the view into a `<template>` tag with HTML rendered at compile time, then hydrating it.
 /// In exchange, there is a small binary size overhead.
 #[proc_macro_error2::proc_macro_error]
@@ -363,7 +366,7 @@ fn normalized_call_site(site: proc_macro::Span) -> Option<String> {
     }
 }
 
-/// This behaves like the [`view`] macro, but loads the view from an external file instead of
+/// This behaves like the [`view`](view!) macro, but loads the view from an external file instead of
 /// parsing it inline.
 ///
 /// This is designed to allow editing views in a separate file, if this improves a user's workflow.
@@ -556,10 +559,10 @@ pub fn component(args: proc_macro::TokenStream, s: TokenStream) -> TokenStream {
 }
 
 /// Defines a component as an interactive island when you are using the
-/// `experimental-islands` feature of Leptos. Apart from the macro name,
+/// `islands` feature of Leptos. Apart from the macro name,
 /// the API is the same as the [`component`](macro@component) macro.
 ///
-/// When you activate the `experimental-islands` feature, every `#[component]`
+/// When you activate the `islands` feature, every `#[component]`
 /// is server-only by default. This "default to server" behavior is important:
 /// you opt into shipping code to the client, rather than opting out. You can
 /// opt into client-side interactivity for any given component by changing from

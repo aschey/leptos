@@ -6,11 +6,23 @@ use crate::{
 };
 use reactive_graph::{
     owner::{ArenaItem, Storage, SyncStorage},
-    traits::{DefinedAt, IsDisposed, Notify, ReadUntracked, Track},
+    traits::{
+        DefinedAt, IsDisposed, Notify, ReadUntracked, Track, UntrackableGuard,
+        Write,
+    },
     unwrap_signal,
 };
-use std::{fmt::Debug, hash::Hash, ops::IndexMut, panic::Location};
+use std::{
+    fmt::Debug,
+    hash::Hash,
+    ops::{DerefMut, IndexMut},
+    panic::Location,
+};
 
+/// Wraps access to a single field of type `T`.
+///
+/// This can be used to erase the chain of field-accessors, to make it easier to pass this into
+/// another component or function without needing to specify the full type signature.
 pub struct Field<T, S = SyncStorage>
 where
     T: 'static,
@@ -197,6 +209,24 @@ where
         self.inner
             .try_get_value()
             .and_then(|inner| inner.try_read_untracked())
+    }
+}
+
+impl<T> Write for Field<T> {
+    type Value = T;
+
+    fn try_write(&self) -> Option<impl UntrackableGuard<Target = Self::Value>> {
+        self.inner.try_get_value().and_then(|inner| (inner.write)())
+    }
+
+    fn try_write_untracked(
+        &self,
+    ) -> Option<impl DerefMut<Target = Self::Value>> {
+        self.inner.try_get_value().and_then(|inner| {
+            let mut guard = (inner.write)()?;
+            guard.untrack();
+            Some(guard)
+        })
     }
 }
 

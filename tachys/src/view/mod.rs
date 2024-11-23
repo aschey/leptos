@@ -2,6 +2,7 @@ use crate::renderer::Renderer;
 use parking_lot::RwLock;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
+/// A typed-erased view type.
 pub mod any_view;
 /// Allows choosing between one of several views.
 pub mod either;

@@ -1,8 +1,6 @@
 use crate::view::Mountable;
 use std::fmt::Debug;
 
-//pub type Rndr = dom::Dom;
-
 /* #[cfg(feature = "testing")]
 /// A renderer based on a mock DOM.
 pub mod mock_dom;

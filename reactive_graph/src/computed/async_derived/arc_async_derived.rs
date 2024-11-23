@@ -117,6 +117,7 @@ pub struct ArcAsyncDerived<T> {
     pub(crate) loading: Arc<AtomicBool>,
 }
 
+#[allow(dead_code)]
 pub(crate) trait BlockingLock<T> {
     fn blocking_read_arc(self: &Arc<Self>)
         -> async_lock::RwLockReadGuardArc<T>;
@@ -286,7 +287,9 @@ macro_rules! spawn_derived {
 
         let mut first_run = {
             let (ready_tx, ready_rx) = oneshot::channel();
-            AsyncTransition::register(ready_rx);
+            if !was_ready {
+                AsyncTransition::register(ready_rx);
+            }
             Some(ready_tx)
         };
 
@@ -342,7 +345,9 @@ macro_rules! spawn_derived {
                                     // register with global transition listener, if any
                                     let ready_tx = first_run.take().unwrap_or_else(|| {
                                         let (ready_tx, ready_rx) = oneshot::channel();
-                                        AsyncTransition::register(ready_rx);
+                                        if !was_ready {
+                                            AsyncTransition::register(ready_rx);
+                                        }
                                         ready_tx
                                     });
 
@@ -579,19 +584,17 @@ impl<T: 'static> ReadUntracked for ArcAsyncDerived<T> {
 
     fn try_read_untracked(&self) -> Option<Self::Value> {
         if let Some(suspense_context) = use_context::<SuspenseContext>() {
-            if self.value.blocking_read().is_none() {
-                let handle = suspense_context.task_id();
-                let ready = SpecialNonReactiveFuture::new(self.ready());
-                crate::spawn(async move {
-                    ready.await;
-                    drop(handle);
-                });
-                self.inner
-                    .write()
-                    .or_poisoned()
-                    .suspenses
-                    .push(suspense_context);
-            }
+            let handle = suspense_context.task_id();
+            let ready = SpecialNonReactiveFuture::new(self.ready());
+            crate::spawn(async move {
+                ready.await;
+                drop(handle);
+            });
+            self.inner
+                .write()
+                .or_poisoned()
+                .suspenses
+                .push(suspense_context);
         }
         AsyncPlain::try_new(&self.value).map(ReadGuard::new)
     }
