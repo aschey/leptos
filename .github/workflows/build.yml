@@ -17,6 +17,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tachys
       - name: Build tachys
         run: cd ./tachys && cargo build
   build-all:
@@ -29,5 +31,7 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tachys
       - name: Build tachys
         run: cd ./tachys && cargo build --all-features
