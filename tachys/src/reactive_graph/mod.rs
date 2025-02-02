@@ -22,7 +22,11 @@ where
 
     #[track_caller]
     fn build(mut self) -> Self::State {
+        let hook = throw_error::get_error_hook();
         RenderEffect::new(move |prev| {
+            let _guard = hook
+                .as_ref()
+                .map(|h| throw_error::set_error_hook(Arc::clone(h)));
             let value = self.invoke();
             if let Some(mut state) = prev {
                 value.rebuild(&mut state);
