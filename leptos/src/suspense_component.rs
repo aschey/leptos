@@ -19,7 +19,7 @@ use slotmap::{DefaultKey, SlotMap};
 use std::sync::Arc;
 use tachys::{
     either::Either,
-    html::attribute::Attribute,
+    html::attribute::{any_attribute::AnyAttribute, Attribute},
     hydration::Cursor,
     reactive_graph::{OwnedView, OwnedViewState},
     ssr::StreamBuilder,
@@ -247,6 +247,7 @@ where
     // i.e., if this is the child of another Suspense during SSR, don't wait for it: it will handle
     // itself
     type AsyncOutput = Self;
+    type Owned = Self;
 
     const MIN_LENGTH: usize = Chil::MIN_LENGTH;
 
@@ -262,9 +263,15 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) {
-        self.fallback
-            .to_html_with_buf(buf, position, escape, mark_branches);
+        self.fallback.to_html_with_buf(
+            buf,
+            position,
+            escape,
+            mark_branches,
+            extra_attrs,
+        );
     }
 
     fn to_html_async_with_buf<const OUT_OF_ORDER: bool>(
@@ -273,6 +280,7 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) where
         Self: Sized,
     {
@@ -303,11 +311,13 @@ where
         let eff = reactive_graph::effect::Effect::new_isomorphic({
             move |_| {
                 tasks.track();
-                if tasks.read().is_empty() {
-                    if let Some(tx) = tasks_tx.take() {
-                        // If the receiver has dropped, it means the ScopedFuture has already
-                        // dropped, so it doesn't matter if we manage to send this.
-                        _ = tx.send(());
+                if let Some(tasks) = tasks.try_read() {
+                    if tasks.is_empty() {
+                        if let Some(tx) = tasks_tx.take() {
+                            // If the receiver has dropped, it means the ScopedFuture has already
+                            // dropped, so it doesn't matter if we manage to send this.
+                            _ = tx.send(());
+                        }
                     }
                 }
             }
@@ -369,6 +379,7 @@ where
                         position,
                         escape,
                         mark_branches,
+                        extra_attrs,
                     );
             }
             Some(None) => {
@@ -378,6 +389,7 @@ where
                         position,
                         escape,
                         mark_branches,
+                        extra_attrs,
                     );
             }
             None => {
@@ -391,12 +403,14 @@ where
                         self.fallback,
                         &mut fallback_position,
                         mark_branches,
+                        extra_attrs.clone(),
                     );
                     buf.push_async_out_of_order_with_nonce(
                         fut,
                         position,
                         mark_branches,
                         nonce_or_not(),
+                        extra_attrs,
                     );
                 } else {
                     buf.push_async({
@@ -412,6 +426,7 @@ where
                                 &mut position,
                                 escape,
                                 mark_branches,
+                                extra_attrs,
                             );
                             builder.finish().take_chunks()
                         }
@@ -460,6 +475,10 @@ where
                 this.hydrate::<FROM_SERVER>(&cursor, &position)
             }
         })
+    }
+
+    fn into_owned(self) -> Self::Owned {
+        self
     }
 }
 
@@ -513,6 +532,7 @@ where
     T: RenderHtml + 'static,
 {
     type AsyncOutput = Self;
+    type Owned = Self;
 
     const MIN_LENGTH: usize = T::MIN_LENGTH;
 
@@ -528,8 +548,15 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) {
-        (self.0)().to_html_with_buf(buf, position, escape, mark_branches);
+        (self.0)().to_html_with_buf(
+            buf,
+            position,
+            escape,
+            mark_branches,
+            extra_attrs,
+        );
     }
 
     fn to_html_async_with_buf<const OUT_OF_ORDER: bool>(
@@ -538,6 +565,7 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) where
         Self: Sized,
     {
@@ -546,6 +574,7 @@ where
             position,
             escape,
             mark_branches,
+            extra_attrs,
         );
     }
 
@@ -555,5 +584,9 @@ where
         position: &PositionState,
     ) -> Self::State {
         (self.0)().hydrate::<FROM_SERVER>(cursor, position)
+    }
+
+    fn into_owned(self) -> Self::Owned {
+        self
     }
 }

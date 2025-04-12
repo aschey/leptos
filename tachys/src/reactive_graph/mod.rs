@@ -156,6 +156,20 @@ impl<T: 'static> ReactiveFunction for Arc<Mutex<dyn FnMut() -> T + Send>> {
     }
 }
 
+impl<T: Send + Sync + 'static> ReactiveFunction
+    for Arc<dyn Fn() -> T + Send + Sync>
+{
+    type Output = T;
+
+    fn invoke(&mut self) -> Self::Output {
+        self()
+    }
+
+    fn into_shared(self) -> Arc<Mutex<dyn FnMut() -> Self::Output + Send>> {
+        Arc::new(Mutex::new(move || self()))
+    }
+}
+
 impl<F, T> ReactiveFunction for F
 where
     F: FnMut() -> T + Send + 'static,
@@ -169,6 +183,36 @@ where
     fn into_shared(self) -> Arc<Mutex<dyn FnMut() -> Self::Output + Send>> {
         Arc::new(Mutex::new(self))
     }
+}
+
+macro_rules! reactive_impl {
+    ($name:ident, <$($gen:ident),*>, $v:ty, $( $where_clause:tt )*) =>
+    {
+        #[allow(deprecated)]
+        impl<R,$($gen),*> Render<R> for $name<$($gen),*>
+        where
+            $v: Render<R> + Clone + Send + Sync + 'static,
+            <$v as Render<R>>::State: 'static,
+            R: Renderer,
+            $($where_clause)*
+
+        {
+            type State = RenderEffectState<<$v as Render<R>>::State>;
+
+            #[track_caller]
+            fn build(self) -> Self::State {
+                (move || self.get()).build()
+            }
+
+            #[track_caller]
+            fn rebuild(self, state: &mut Self::State) {
+                let new = self.build();
+                let mut old = std::mem::replace(state, new);
+                old.insert_before_this(state);
+                old.unmount();
+            }
+        }
+    };
 }
 
 #[cfg(not(feature = "nightly"))]
@@ -188,72 +232,129 @@ mod stable {
         wrappers::read::{ArcSignal, Signal},
     };
 
-    macro_rules! signal_impl {
-        ($sig:ident $dry_resolve:literal) => {
-            impl<V, R> Render<R> for $sig<V>
-            where
-                $sig<V>: Get<Value = V>,
-                V: Render<R> + Clone + Send + Sync + 'static,
-                V::State: 'static,
-                R: Renderer,
-            {
-                type State = RenderEffectState<V::State>;
+    reactive_impl!(
+        RwSignal,
+        <V, S>,
+        V,
+        RwSignal<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(
+        ReadSignal,
+        <V, S>,
+        V,
+        ReadSignal<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(
+        Memo,
+        <V, S>,
+        V,
+        Memo<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(
+        Signal,
+        <V, S>,
+        V,
+        Signal<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(
+        MaybeSignal,
+        <V, S>,
+        V,
+        MaybeSignal<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(ArcRwSignal, <V>, V, ArcRwSignal<V>: Get<Value = V>);
+    reactive_impl!(ArcReadSignal, <V>, V, ArcReadSignal<V>: Get<Value = V>);
+    reactive_impl!(ArcMemo, <V>, V, ArcMemo<V>: Get<Value = V>);
+    reactive_impl!(ArcSignal, <V>, V, ArcSignal<V>: Get<Value = V>);
+}
 
-                #[track_caller]
-                fn build(self) -> Self::State {
-                    (move || self.get()).build()
-                }
+#[cfg(feature = "reactive_stores")]
+mod reactive_stores {
+    use super::{RenderEffectState, Renderer};
+    use crate::view::{Mountable, Render};
+    #[allow(deprecated)]
+    use reactive_graph::{owner::Storage, traits::Get};
+    use reactive_stores::{
+        ArcField, ArcStore, AtIndex, AtKeyed, DerefedField, Field,
+        KeyedSubfield, Store, StoreField, Subfield,
+    };
+    use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-                #[track_caller]
-                fn rebuild(self, state: &mut Self::State) {
-                    let new = self.build();
-                    let mut old = std::mem::replace(state, new);
-                    old.insert_before_this(state);
-                    old.unmount();
-                }
-            }
-        };
-    }
+    reactive_impl!(
+        Subfield,
+        <Inner, Prev, V>,
+        V,
+        Subfield<Inner, Prev, V>: Get<Value = V>,
+        Prev: Send + Sync + 'static,
+        Inner: Send + Sync + Clone + 'static,
+    );
 
-    macro_rules! signal_impl_arena {
-        ($sig:ident $dry_resolve:literal) => {
-            #[allow(deprecated)]
-            impl<V, S, R> Render<R> for $sig<V, S>
-            where
-                $sig<V, S>: Get<Value = V>,
-                S: Send + Sync + 'static,
-                S: Storage<V> + Storage<Option<V>>,
-                V: Render<R> + Send + Sync + Clone + 'static,
-                V::State: 'static,
-                R: Renderer,
-            {
-                type State = RenderEffectState<V::State>;
+    reactive_impl!(
+        AtKeyed,
+        <Inner, Prev, K, V>,
+        V,
+        AtKeyed<Inner, Prev, K, V>: Get<Value = V>,
+        Prev: Send + Sync + 'static,
+        Inner: Send + Sync + Clone + 'static,
+        K: Send + Sync + std::fmt::Debug + Clone + 'static,
+        for<'a> &'a V: IntoIterator,
+    );
 
-                #[track_caller]
-                fn build(self) -> Self::State {
-                    (move || self.get()).build()
-                }
+    reactive_impl!(
+        KeyedSubfield,
+        <Inner, Prev, K, V>,
+        V,
+        KeyedSubfield<Inner, Prev, K, V>: Get<Value = V>,
+        Prev: Send + Sync + 'static,
+        Inner: Send + Sync + Clone + 'static,
+        K: Send + Sync + std::fmt::Debug + Clone + 'static,
+        for<'a> &'a V: IntoIterator,
+    );
 
-                #[track_caller]
-                fn rebuild(self, state: &mut Self::State) {
-                    let new = self.build();
-                    let mut old = std::mem::replace(state, new);
-                    old.insert_before_this(state);
-                    old.unmount();
-                }
-            }
-        };
-    }
+    reactive_impl!(
+        DerefedField,
+        <S>,
+        <S::Value as Deref>::Target,
+        S: Clone + StoreField + Send + Sync + 'static,
+        <S as StoreField>::Value: Deref + DerefMut
+    );
 
-    signal_impl_arena!(RwSignal false);
-    signal_impl_arena!(ReadSignal false);
-    signal_impl_arena!(Memo true);
-    signal_impl_arena!(Signal true);
-    signal_impl_arena!(MaybeSignal true);
-    signal_impl!(ArcRwSignal false);
-    signal_impl!(ArcReadSignal false);
-    signal_impl!(ArcMemo false);
-    signal_impl!(ArcSignal true);
+    reactive_impl!(
+        AtIndex,
+        <Inner, Prev>,
+        <Prev as Index<usize>>::Output,
+        AtIndex<Inner, Prev>: Get<Value = Prev::Output>,
+        Prev: Send + Sync + IndexMut<usize> + 'static,
+        Inner: Send + Sync + Clone + 'static,
+    );
+    reactive_impl!(
+        Store,
+        <V, S>,
+        V,
+        Store<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(
+        Field,
+        <V, S>,
+        V,
+        Field<V, S>: Get<Value = V>,
+        S: Storage<V> + Storage<Option<V>>,
+        S: Send + Sync + 'static,
+    );
+    reactive_impl!(ArcStore, <V>, V, ArcStore<V>: Get<Value = V>);
+    reactive_impl!(ArcField, <V>, V, ArcField<V>: Get<Value = V>);
 }
 
 /*

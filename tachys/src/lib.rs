@@ -6,14 +6,20 @@
 // this is specifically used for `unsized_const_params` below
 // this allows us to use const generic &'static str for static text nodes and attributes
 #![allow(incomplete_features)]
-#![cfg_attr(feature = "nightly", feature(unsized_const_params))]
+#![cfg_attr(
+    all(feature = "nightly", rustc_nightly),
+    feature(unsized_const_params)
+)]
 #![deny(missing_docs)]
 
 /// Commonly-used traits.
 pub mod prelude {
     pub use crate::{
         renderer::Renderer,
-        view::{any_view::IntoAny, IntoRender, Mountable, Render},
+        view::{
+            any_view::{AnyView, IntoAny, IntoMaybeErased},
+            IntoRender, Mountable, Render,
+        },
     };
 }
 
@@ -30,3 +36,6 @@ pub mod oco;
 /// View implementations for the `reactive_graph` crate.
 #[cfg(feature = "reactive_graph")]
 pub mod reactive_graph;
+
+/// A type-erased container.
+pub mod erased;

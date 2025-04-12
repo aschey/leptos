@@ -1,4 +1,7 @@
-use super::any_view::{AnyView, IntoAny};
+use super::{
+    any_view::{AnyView, IntoAny},
+    iterators::StaticVec,
+};
 use crate::prelude::Renderer;
 
 /// A typed-erased collection of different views.
@@ -7,7 +10,7 @@ where
     R: Renderer,
 {
     /// The nodes contained in the fragment.
-    pub nodes: Vec<AnyView<R>>,
+    pub nodes: StaticVec<AnyView<R>>,
 }
 
 /// Converts some view into a type-erased collection of views.
@@ -53,11 +56,23 @@ where
     /// Creates a new [`Fragment`].
     #[inline(always)]
     pub fn new(nodes: Vec<AnyView<R>>) -> Self {
-        Self { nodes }
+        Self {
+            nodes: nodes.into(),
+        }
     }
 }
 
 impl<T, R> IntoFragment<R> for Vec<T>
+where
+    T: IntoAny<R>,
+    R: Renderer,
+{
+    fn into_fragment(self) -> Fragment<R> {
+        Fragment::new(self.into_iter().map(IntoAny::into_any).collect())
+    }
+}
+
+impl<T, R> IntoFragment<R> for StaticVec<T>
 where
     T: IntoAny<R>,
     R: Renderer,

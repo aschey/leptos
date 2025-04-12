@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+mod any_choose_view;
 mod choose_view;
 mod path_segment;
 pub(crate) mod resolve_path;
@@ -127,6 +128,8 @@ pub trait MatchNestedRoutes {
     fn generate_routes(
         &self,
     ) -> impl IntoIterator<Item = GeneratedRouteData> + '_;
+
+    fn optional(&self) -> bool;
 }
 
 #[derive(Default, Debug, PartialEq)]

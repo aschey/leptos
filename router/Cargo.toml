@@ -1,6 +1,6 @@
 [package]
 name = "leptos_router"
-version = "0.7.7"
+version = "0.8.0-rc1"
 authors = ["Greg Johnston", "Ben Wishovich"]
 license = "MIT"
 readme = "../README.md"
@@ -20,7 +20,7 @@ tachys = { workspace = true, features = ["reactive_graph"] }
 futures = "0.3.31"
 url = "2.5"
 js-sys = { version = "0.3.74" }
-wasm-bindgen = { version = "0.2.97" }
+wasm-bindgen = { workspace = true }
 tracing = { version = "0.1.41", optional = true }
 once_cell = "1.20"
 send_wrapper = "0.6.0"
@@ -56,6 +56,9 @@ features = [
   "Response",
 ]
 
+[build-dependencies]
+rustc_version = "0.4.1"
+
 [features]
 tracing = ["dep:tracing"]
 ssr = ["dep:percent-encoding"]
@@ -66,3 +69,11 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [package.metadata.cargo-all-features]
 denylist = ["tracing"]
+max_combination_size = 2
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(leptos_debuginfo)',
+  'cfg(erase_components)',
+  'cfg(rustc_nightly)',
+] }

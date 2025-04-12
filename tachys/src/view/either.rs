@@ -235,7 +235,6 @@ macro_rules! tuples {
             {
                 type State = [<EitherOf $num State>]<$($ty,)* Rndr>;
 
-
                 fn build(self) -> Self::State {
                     let state = match self {
                         $([<EitherOf $num>]::$ty(this) => [<EitherOf $num>]::$ty(this.build()),)*

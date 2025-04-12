@@ -16,7 +16,7 @@ pub mod iterators;
 pub mod keyed;
 mod primitives;
 /// Optimized types for static strings known at compile time.
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "nightly", rustc_nightly))]
 pub mod static_types;
 /// View implementation for string types.
 pub mod strings;
@@ -27,7 +27,7 @@ pub mod tuples;
 ///
 /// It is generic over the renderer itself, as long as that implements the [`Renderer`]
 /// trait.
-pub trait Render<R: Renderer>: Sized {
+pub trait Render<R: Renderer>: Sized + 'static {
     /// The “view state” for this type, which can be retained between updates.
     ///
     /// For example, for a text node, `State` might be the actual DOM text node

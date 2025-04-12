@@ -45,18 +45,17 @@ macro_rules! impl_view_for_tuples {
 		where
 			$first: Render<Rndr>,
 			$($ty: Render<Rndr>),*,
-                        Rndr: Renderer,
+            Rndr: Renderer,
 		{
 			type State = ($first::State, $($ty::State,)*);
 
-
 			fn build(self) -> Self::State {
-                            #[allow(non_snake_case)]
-                            let ($first, $($ty,)*) = self;
-                            (
-                                $first.build(),
-                                $($ty.build()),*
-                            )
+                #[allow(non_snake_case)]
+                let ($first, $($ty,)*) = self;
+                (
+                    $first.build(),
+                    $($ty.build()),*
+                )
 			}
 
 			fn rebuild(self, state: &mut Self::State) {
@@ -67,18 +66,20 @@ macro_rules! impl_view_for_tuples {
 					$([<$ty:lower>].rebuild([<view_ $ty:lower>]));*
 				}
 			}
+
+
 		}
 
-                impl<$first, $($ty),*, Rndr> Mountable<Rndr> for ($first, $($ty,)*) where
+        impl<$first, $($ty),*, Rndr> Mountable<Rndr> for ($first, $($ty,)*) where
 			$first: Mountable<Rndr>,
 			$($ty: Mountable<Rndr>),*,
 			Rndr: Renderer
 		{
 			fn unmount(&mut self) {
-                            #[allow(non_snake_case)] // better macro performance
-                            let ($first, $($ty,)*) = self;
-                            $first.unmount();
-                            $($ty.unmount());*
+                #[allow(non_snake_case)] // better macro performance
+                let ($first, $($ty,)*) = self;
+                $first.unmount();
+                $($ty.unmount());*
 			}
 
 			fn mount(
@@ -86,19 +87,19 @@ macro_rules! impl_view_for_tuples {
 				parent: &Rndr::Element,
 				marker: Option<&Rndr::Node>,
 			) {
-                            #[allow(non_snake_case)] // better macro performance
-                            let ($first, $($ty,)*) = self;
-                            $first.mount(parent, marker);
-                            $($ty.mount(parent, marker));*
+                #[allow(non_snake_case)] // better macro performance
+                let ($first, $($ty,)*) = self;
+                $first.mount(parent, marker);
+                $($ty.mount(parent, marker));*
 			}
 
 			fn insert_before_this(&self,
 				child: &mut dyn Mountable<Rndr>,
 			) -> bool {
-                            #[allow(non_snake_case)] // better macro performance
-                            let ($first, $($ty,)*) = self;
-                            $first.insert_before_this(child)
-                            $(|| $ty.insert_before_this(child))*
+                #[allow(non_snake_case)] // better macro performance
+                let ($first, $($ty,)*) = self;
+                $first.insert_before_this(child)
+                $(|| $ty.insert_before_this(child))*
 			}
 		}
     };

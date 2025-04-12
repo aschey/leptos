@@ -11,11 +11,11 @@ where
     str: &'a str,
 }
 
-impl<'a, R> Render<R> for &'a str
+impl<R> Render<R> for &'static str
 where
     R: Renderer,
 {
-    type State = StrState<'a, R>;
+    type State = StrState<'static, R>;
 
     fn build(self) -> Self::State {
         let node = R::create_text_node(self);
@@ -195,11 +195,11 @@ where
     str: Cow<'a, str>,
 }
 
-impl<'a, R> Render<R> for Cow<'a, str>
+impl<R> Render<R> for Cow<'static, str>
 where
     R: Renderer,
 {
-    type State = CowStrState<'a, R>;
+    type State = CowStrState<'static, R>;
 
     fn build(self) -> Self::State {
         let node = R::create_text_node(&self);

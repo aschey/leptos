@@ -34,11 +34,12 @@ macro_rules! render_primitive {
 					) -> bool {
 						self.0.insert_before_this(child)
 					}
+
+
 			}
 
 			impl<R: Renderer> Render<R> for $child_type {
 				type State = [<$child_type:camel State>]<R>;
-
 
 				fn build(self) -> Self::State {
 					let node = R::create_text_node(&self.to_string());

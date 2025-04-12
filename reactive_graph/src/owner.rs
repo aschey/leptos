@@ -60,6 +60,38 @@ pub struct Owner {
     pub(crate) shared_context: Option<Arc<dyn SharedContext + Send + Sync>>,
 }
 
+impl Owner {
+    fn downgrade(&self) -> WeakOwner {
+        WeakOwner {
+            inner: Arc::downgrade(&self.inner),
+            #[cfg(feature = "hydration")]
+            shared_context: self.shared_context.as_ref().map(Arc::downgrade),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct WeakOwner {
+    inner: Weak<RwLock<OwnerInner>>,
+    #[cfg(feature = "hydration")]
+    shared_context: Option<Weak<dyn SharedContext + Send + Sync>>,
+}
+
+impl WeakOwner {
+    fn upgrade(&self) -> Option<Owner> {
+        self.inner.upgrade().map(|inner| {
+            #[cfg(feature = "hydration")]
+            let shared_context =
+                self.shared_context.as_ref().and_then(|sc| sc.upgrade());
+            Owner {
+                inner,
+                #[cfg(feature = "hydration")]
+                shared_context,
+            }
+        })
+    }
+}
+
 impl PartialEq for Owner {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -67,7 +99,7 @@ impl PartialEq for Owner {
 }
 
 thread_local! {
-    static OWNER: RefCell<Option<Owner>> = Default::default();
+    static OWNER: RefCell<Option<WeakOwner>> = Default::default();
 }
 
 impl Owner {
@@ -107,12 +139,16 @@ impl Owner {
     /// Creates a new `Owner` and registers it as a child of the current `Owner`, if there is one.
     pub fn new() -> Self {
         #[cfg(not(feature = "hydration"))]
-        let parent = OWNER
-            .with(|o| o.borrow().as_ref().map(|o| Arc::downgrade(&o.inner)));
+        let parent = OWNER.with(|o| {
+            o.borrow()
+                .as_ref()
+                .and_then(|o| o.upgrade())
+                .map(|o| Arc::downgrade(&o.inner))
+        });
         #[cfg(feature = "hydration")]
         let (parent, shared_context) = OWNER
             .with(|o| {
-                o.borrow().as_ref().map(|o| {
+                o.borrow().as_ref().and_then(|o| o.upgrade()).map(|o| {
                     (Some(Arc::downgrade(&o.inner)), o.shared_context.clone())
                 })
             })
@@ -130,6 +166,7 @@ impl Owner {
                     .and_then(|parent| parent.upgrade())
                     .map(|parent| parent.read().or_poisoned().arena.clone())
                     .unwrap_or_default(),
+                paused: false,
             })),
             #[cfg(feature = "hydration")]
             shared_context,
@@ -163,6 +200,7 @@ impl Owner {
                 children: Default::default(),
                 #[cfg(feature = "sandboxed-arenas")]
                 arena: Default::default(),
+                paused: false,
             })),
             #[cfg(feature = "hydration")]
             shared_context,
@@ -174,8 +212,10 @@ impl Owner {
     /// Creates a new `Owner` that is the child of the current `Owner`, if any.
     pub fn child(&self) -> Self {
         let parent = Some(Arc::downgrade(&self.inner));
+        let mut inner = self.inner.write().or_poisoned();
         #[cfg(feature = "sandboxed-arenas")]
-        let arena = self.inner.read().or_poisoned().arena.clone();
+        let arena = inner.arena.clone();
+        let paused = inner.paused;
         let child = Self {
             inner: Arc::new(RwLock::new(OwnerInner {
                 parent,
@@ -185,38 +225,45 @@ impl Owner {
                 children: Default::default(),
                 #[cfg(feature = "sandboxed-arenas")]
                 arena,
+                paused,
             })),
             #[cfg(feature = "hydration")]
             shared_context: self.shared_context.clone(),
         };
-        self.inner
-            .write()
-            .or_poisoned()
-            .children
-            .push(Arc::downgrade(&child.inner));
+        inner.children.push(Arc::downgrade(&child.inner));
         child
     }
 
     /// Sets this as the current `Owner`.
     pub fn set(&self) {
-        OWNER.with_borrow_mut(|owner| *owner = Some(self.clone()));
+        OWNER.with_borrow_mut(|owner| *owner = Some(self.downgrade()));
         #[cfg(feature = "sandboxed-arenas")]
         Arena::set(&self.inner.read().or_poisoned().arena);
     }
 
     /// Runs the given function with this as the current `Owner`.
     pub fn with<T>(&self, fun: impl FnOnce() -> T) -> T {
-        let prev = {
-            OWNER.with(|o| {
-                mem::replace(&mut *o.borrow_mut(), Some(self.clone()))
-            })
-        };
-        #[cfg(feature = "sandboxed-arenas")]
-        Arena::set(&self.inner.read().or_poisoned().arena);
+        // codegen optimisation:
+        fn inner_1(self_: &Owner) -> Option<WeakOwner> {
+            let prev = {
+                OWNER.with(|o| (*o.borrow_mut()).replace(self_.downgrade()))
+            };
+            #[cfg(feature = "sandboxed-arenas")]
+            Arena::set(&self_.inner.read().or_poisoned().arena);
+            prev
+        }
+        let prev = inner_1(self);
+
         let val = fun();
-        OWNER.with(|o| {
-            *o.borrow_mut() = prev;
-        });
+
+        // monomorphisation optimisation:
+        fn inner_2(prev: Option<WeakOwner>) {
+            OWNER.with(|o| {
+                *o.borrow_mut() = prev;
+            });
+        }
+        inner_2(prev);
+
         val
     }
 
@@ -256,7 +303,7 @@ impl Owner {
 
     /// Returns the current `Owner`, if any.
     pub fn current() -> Option<Owner> {
-        OWNER.with(|o| o.borrow().clone())
+        OWNER.with(|o| o.borrow().as_ref().and_then(|n| n.upgrade()))
     }
 
     /// Returns the [`SharedContext`] associated with this owner, if any.
@@ -270,7 +317,7 @@ impl Owner {
     /// Removes this from its state as the thread-local owner and drops it.
     pub fn unset(self) {
         OWNER.with_borrow_mut(|owner| {
-            if owner.as_ref() == Some(&self) {
+            if owner.as_ref().and_then(|n| n.upgrade()) == Some(self) {
                 mem::take(owner);
             }
         })
@@ -283,6 +330,7 @@ impl Owner {
         OWNER.with(|o| {
             o.borrow()
                 .as_ref()
+                .and_then(|o| o.upgrade())
                 .and_then(|current| current.shared_context.clone())
         })
     }
@@ -296,6 +344,7 @@ impl Owner {
 
             let sc = OWNER.with_borrow(|o| {
                 o.as_ref()
+                    .and_then(|o| o.upgrade())
                     .and_then(|current| current.shared_context.clone())
             });
             match sc {
@@ -321,6 +370,7 @@ impl Owner {
 
             let sc = OWNER.with_borrow(|o| {
                 o.as_ref()
+                    .and_then(|o| o.upgrade())
                     .and_then(|current| current.shared_context.clone())
             });
             match sc {
@@ -336,6 +386,47 @@ impl Owner {
         }
 
         inner(Box::new(fun))
+    }
+
+    /// Pauses the execution of side effects for this owner, and any of its descendants.
+    ///
+    /// If this owner is the owner for an [`Effect`](crate::effect::Effect) or [`RenderEffect`](crate::effect::RenderEffect), this effect will not run until [`Owner::resume`] is called. All children of this effects are also paused.
+    ///
+    /// Any notifications will be ignored; effects that are notified will paused will not run when
+    /// resumed, until they are notified again by a source after being resumed.
+    pub fn pause(&self) {
+        let mut stack = Vec::with_capacity(16);
+        stack.push(Arc::downgrade(&self.inner));
+        while let Some(curr) = stack.pop() {
+            if let Some(curr) = curr.upgrade() {
+                let mut curr = curr.write().or_poisoned();
+                curr.paused = true;
+                stack.extend(curr.children.iter().map(Weak::clone));
+            }
+        }
+    }
+
+    /// Whether this owner has been paused by [`Owner::pause`].
+    pub fn paused(&self) -> bool {
+        self.inner.read().or_poisoned().paused
+    }
+
+    /// Resumes side effects that have been paused by [`Owner::pause`].
+    ///
+    /// All children will also be resumed.
+    ///
+    /// This will *not* cause side effects that were notified while paused to run, until they are
+    /// notified again by a source after being resumed.
+    pub fn resume(&self) {
+        let mut stack = Vec::with_capacity(16);
+        stack.push(Arc::downgrade(&self.inner));
+        while let Some(curr) = stack.pop() {
+            if let Some(curr) = curr.upgrade() {
+                let mut curr = curr.write().or_poisoned();
+                curr.paused = false;
+                stack.extend(curr.children.iter().map(Weak::clone));
+            }
+        }
     }
 }
 
@@ -363,6 +454,7 @@ pub(crate) struct OwnerInner {
     pub children: Vec<Weak<RwLock<OwnerInner>>>,
     #[cfg(feature = "sandboxed-arenas")]
     arena: Arc<RwLock<ArenaMap>>,
+    paused: bool,
 }
 
 impl Debug for OwnerInner {

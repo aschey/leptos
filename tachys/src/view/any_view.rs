@@ -1,9 +1,9 @@
 use super::{Mountable, Render};
-use crate::prelude::Renderer;
-use std::{
-    any::{Any, TypeId},
-    fmt::Debug,
+use crate::{
+    erased::{Erased, ErasedLocal},
+    prelude::Renderer,
 };
+use std::{any::TypeId, fmt::Debug};
 
 /// A type-erased view. This can be used if control flow requires that multiple different types of
 /// view must be received, and it is either impossible or too cumbersome to use the `EitherOf___`
@@ -20,21 +20,31 @@ where
     R: Renderer,
 {
     type_id: TypeId,
-    value: Box<dyn Any + Send>,
-    build: fn(Box<dyn Any>) -> AnyViewState<R>,
-    rebuild: fn(TypeId, Box<dyn Any>, &mut AnyViewState<R>),
+    value: Erased,
+    build: fn(Erased) -> AnyViewState<R>,
+    rebuild: fn(Erased, &mut AnyViewState<R>),
 }
 
+impl<R> Debug for AnyView<R>
+where
+    R: Renderer,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnyView")
+            .field("type_id", &self.type_id)
+            .finish_non_exhaustive()
+    }
+}
 /// Retained view state for [`AnyView`].
 pub struct AnyViewState<R>
 where
     R: Renderer,
 {
     type_id: TypeId,
-    state: Box<dyn Any>,
-    unmount: fn(&mut dyn Any),
-    mount: fn(&mut dyn Any, parent: &R::Element, marker: Option<&R::Node>),
-    insert_before_this: fn(&dyn Any, child: &mut dyn Mountable<R>) -> bool,
+    state: ErasedLocal,
+    unmount: fn(&mut ErasedLocal),
+    mount: fn(&mut ErasedLocal, parent: &R::Element, marker: Option<&R::Node>),
+    insert_before_this: fn(&ErasedLocal, child: &mut dyn Mountable<R>) -> bool,
 }
 
 impl<R> Debug for AnyViewState<R>
@@ -44,7 +54,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyViewState")
             .field("type_id", &self.type_id)
-            .field("state", &self.state)
+            .field("state", &"")
             .field("unmount", &self.unmount)
             .field("mount", &self.mount)
             .field("insert_before_this", &self.insert_before_this)
@@ -61,8 +71,42 @@ where
     fn into_any(self) -> AnyView<R>;
 }
 
+/// A more general version of [`IntoAny`] that allows into [`AnyView`],
+/// but also erasing other types that don't implement [`RenderHtml`] like routing.
+pub trait IntoMaybeErased<R> {
+    /// The type of the output.
+    type Output: IntoMaybeErased<R>;
+
+    /// Converts the view into a type-erased view if in erased mode.
+    fn into_maybe_erased(self) -> Self::Output;
+}
+
+impl<T, R> IntoMaybeErased<R> for T
+where
+    T: Render<R>,
+    T: IntoAny<R>,
+    R: Renderer,
+{
+    #[cfg(not(erase_components))]
+    type Output = Self;
+
+    #[cfg(erase_components)]
+    type Output = AnyView<R>;
+
+    fn into_maybe_erased(self) -> Self::Output {
+        #[cfg(not(erase_components))]
+        {
+            self
+        }
+        #[cfg(erase_components)]
+        {
+            self.into_any()
+        }
+    }
+}
+
 fn mount_any<T, R>(
-    state: &mut dyn Any,
+    state: &mut ErasedLocal,
     parent: &R::Element,
     marker: Option<&R::Node>,
 ) where
@@ -70,26 +114,20 @@ fn mount_any<T, R>(
     T::State: 'static,
     R: Renderer,
 {
-    let state = state
-        .downcast_mut::<T::State>()
-        .expect("AnyViewState::as_mountable couldn't downcast state");
-    state.mount(parent, marker)
+    state.get_mut::<T::State>().mount(parent, marker)
 }
 
-fn unmount_any<T, R>(state: &mut dyn Any)
+fn unmount_any<T, R>(state: &mut ErasedLocal)
 where
     T: Render<R>,
     T::State: 'static,
     R: Renderer,
 {
-    let state = state
-        .downcast_mut::<T::State>()
-        .expect("AnyViewState::unmount couldn't downcast state");
-    state.unmount();
+    state.get_mut::<T::State>().unmount();
 }
 
 fn insert_before_this<T, R>(
-    state: &dyn Any,
+    state: &ErasedLocal,
     child: &mut dyn Mountable<R>,
 ) -> bool
 where
@@ -97,10 +135,7 @@ where
     T::State: 'static,
     R: Renderer,
 {
-    let state = state
-        .downcast_ref::<T::State>()
-        .expect("AnyViewState::insert_before_this couldn't downcast state");
-    state.insert_before_this(child)
+    state.get_ref::<T::State>().insert_before_this(child)
 }
 
 impl<T, R> IntoAny<R> for T
@@ -110,59 +145,33 @@ where
     T::State: 'static,
     R: Renderer,
 {
-    // inlining allows the compiler to remove the unused functions
-    // i.e., doesn't ship HTML-generating code that isn't used
-    #[inline(always)]
     fn into_any(self) -> AnyView<R> {
-        let value = Box::new(self) as Box<dyn Any + Send>;
-
-        match value.downcast::<AnyView<R>>() {
-            // if it's already an AnyView, we don't need to double-wrap it
-            Ok(any_view) => *any_view,
-            Err(value) => {
-                let build = |value: Box<dyn Any>| {
-                    let value = value
-                        .downcast::<T>()
-                        .expect("AnyView::build couldn't downcast");
-                    let state = Box::new(value.build());
-
-                    AnyViewState {
-                        type_id: TypeId::of::<T>(),
-                        state,
-
-                        mount: mount_any::<T, R>,
-                        unmount: unmount_any::<T, R>,
-                        insert_before_this: insert_before_this::<T, R>,
-                    }
-                };
-
-                let rebuild =
-                    |new_type_id: TypeId,
-                     value: Box<dyn Any>,
-                     state: &mut AnyViewState<R>| {
-                        let value = value
-                            .downcast::<T>()
-                            .expect("AnyView::rebuild couldn't downcast value");
-                        if new_type_id == state.type_id {
-                            let state = state.state.downcast_mut().expect(
-                                "AnyView::rebuild couldn't downcast state",
-                            );
-                            value.rebuild(state);
-                        } else {
-                            let mut new = value.into_any().build();
-                            state.insert_before_this(&mut new);
-                            state.unmount();
-                            *state = new;
-                        }
-                    };
-
-                AnyView {
-                    type_id: TypeId::of::<T>(),
-                    value,
-                    build,
-                    rebuild,
-                }
+        fn build<T: Render<R> + 'static, R: Renderer>(
+            value: Erased,
+        ) -> AnyViewState<R> {
+            let state = ErasedLocal::new(value.into_inner::<T>().build());
+            AnyViewState {
+                type_id: TypeId::of::<T>(),
+                state,
+                mount: mount_any::<T, R>,
+                unmount: unmount_any::<T, R>,
+                insert_before_this: insert_before_this::<T, R>,
             }
+        }
+
+        fn rebuild<T: Render<R> + 'static, R: Renderer>(
+            value: Erased,
+            state: &mut AnyViewState<R>,
+        ) {
+            let state = state.state.get_mut::<<T as Render<R>>::State>();
+            value.into_inner::<T>().rebuild(state);
+        }
+
+        AnyView {
+            type_id: TypeId::of::<T>(),
+            value: Erased::new(self),
+            build: build::<T, R>,
+            rebuild: rebuild::<T, R>,
         }
     }
 }
@@ -178,7 +187,14 @@ where
     }
 
     fn rebuild(self, state: &mut Self::State) {
-        (self.rebuild)(self.type_id, self.value, state)
+        if self.type_id == state.type_id {
+            (self.rebuild)(self.value, state)
+        } else {
+            let mut new = self.build();
+            state.insert_before_this(&mut new);
+            state.unmount();
+            *state = new;
+        }
     }
 }
 
@@ -187,17 +203,18 @@ where
     R: Renderer,
 {
     fn unmount(&mut self) {
-        (self.unmount)(&mut *self.state)
+        (self.unmount)(&mut self.state)
     }
 
     fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
-        (self.mount)(&mut *self.state, parent, marker)
+        (self.mount)(&mut self.state, parent, marker)
     }
 
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
-        (self.insert_before_this)(&*self.state, child)
+        (self.insert_before_this)(&self.state, child)
     }
 }
+
 /*
 #[cfg(test)]
 mod tests {

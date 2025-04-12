@@ -59,16 +59,16 @@ where
 
 impl<T, I, K, KF, VF, VFS, V, R> Render<R> for Keyed<T, I, K, KF, VF, VFS, V>
 where
-    I: IntoIterator<Item = T>,
+    I: IntoIterator<Item = T> + 'static,
     K: Eq + Hash + 'static,
-    KF: Fn(&T) -> K,
-    V: Render<R>,
-    VF: Fn(usize, T) -> (VFS, V),
-    VFS: Fn(usize),
+    KF: Fn(&T) -> K + 'static,
+    V: Render<R> + 'static,
+    VF: Fn(usize, T) -> (VFS, V) + 'static,
+    VFS: Fn(usize) + 'static,
     R: Renderer,
+    T: 'static,
 {
     type State = KeyedState<K, VFS, V, R>;
-    // TODO fallible state and try_build()/try_rebuild() here
 
     fn build(self) -> Self::State {
         let items = self.items.into_iter();

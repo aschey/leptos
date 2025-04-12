@@ -1,4 +1,5 @@
 use crate::{
+    flat_router::MatchedRoute,
     hooks::Matched,
     location::{LocationProvider, Url},
     matching::RouteDefs,
@@ -10,7 +11,7 @@ use crate::{
 use any_spawner::Executor;
 use either_of::{Either, EitherOf3};
 use futures::{channel::oneshot, future::join_all, FutureExt};
-use leptos::{component, oco::Oco};
+use leptos::{attr::any_attribute::AnyAttribute, component, oco::Oco};
 use or_poisoned::OrPoisoned;
 use reactive_graph::{
     computed::{ArcMemo, ScopedFuture},
@@ -228,8 +229,8 @@ where
 impl<Loc, Defs, Fal, FalFn> AddAnyAttr for NestedRoutesView<Loc, Defs, FalFn>
 where
     Loc: LocationProvider + Send,
-    Defs: MatchNestedRoutes + Send,
-    FalFn: FnOnce() -> Fal + Send,
+    Defs: MatchNestedRoutes + Send + 'static,
+    FalFn: FnOnce() -> Fal + Send + 'static,
     Fal: RenderHtml + 'static,
 {
     type Output<SomeNewAttr: leptos::attr::Attribute> =
@@ -249,11 +250,12 @@ where
 impl<Loc, Defs, FalFn, Fal> RenderHtml for NestedRoutesView<Loc, Defs, FalFn>
 where
     Loc: LocationProvider + Send,
-    Defs: MatchNestedRoutes + Send,
-    FalFn: FnOnce() -> Fal + Send,
+    Defs: MatchNestedRoutes + Send + 'static,
+    FalFn: FnOnce() -> Fal + Send + 'static,
     Fal: RenderHtml + 'static,
 {
     type AsyncOutput = Self;
+    type Owned = Self;
 
     const MIN_LENGTH: usize = 0; // TODO
 
@@ -269,6 +271,7 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) {
         // if this is being run on the server for the first time, generating all possible routes
         if RouteList::is_generating() {
@@ -348,7 +351,13 @@ where
                     outer_owner.with(|| Either::Right(Outlet().into_any()))
                 }
             };
-            view.to_html_with_buf(buf, position, escape, mark_branches);
+            view.to_html_with_buf(
+                buf,
+                position,
+                escape,
+                mark_branches,
+                extra_attrs,
+            );
         }
     }
 
@@ -358,6 +367,7 @@ where
         position: &mut Position,
         escape: bool,
         mark_branches: bool,
+        extra_attrs: Vec<AnyAttribute>,
     ) where
         Self: Sized,
     {
@@ -400,6 +410,7 @@ where
             position,
             escape,
             mark_branches,
+            extra_attrs,
         );
     }
 
@@ -456,9 +467,13 @@ where
             view,
         }
     }
+
+    fn into_owned(self) -> Self::Owned {
+        self
+    }
 }
 
-type OutletViewFn = Box<dyn Fn() -> Suspend<AnyView> + Send>;
+type OutletViewFn = Box<dyn FnMut() -> Suspend<AnyView> + Send>;
 
 pub(crate) struct RouteContext {
     id: RouteMatchId,
@@ -628,21 +643,30 @@ where
                 async move {
                     provide_context(params_including_parents);
                     provide_context(url);
-                    provide_context(matched);
+                    provide_context(matched.clone());
                     view.preload().await;
                     *view_fn.lock().or_poisoned() = Box::new(move || {
                         let view = view.clone();
-                        owner.with(|| {
-                            Suspend::new(Box::pin(async move {
-                                let view = SendWrapper::new(ScopedFuture::new(
-                                    view.choose(),
-                                ));
-                                let view = view.await;
-                                OwnedView::new(view).into_any()
-                            })
-                                as Pin<
-                                    Box<dyn Future<Output = AnyView> + Send>,
-                                >)
+                        owner.with({
+                            let matched = matched.clone();
+                            move || {
+                                Suspend::new(Box::pin(async move {
+                                    let view = SendWrapper::new(
+                                        ScopedFuture::new(view.choose()),
+                                    );
+                                    let view = view.await;
+                                    let view = MatchedRoute(
+                                        matched.0.get_untracked(),
+                                        view,
+                                    );
+                                    OwnedView::new(view).into_any()
+                                })
+                                    as Pin<
+                                        Box<
+                                            dyn Future<Output = AnyView> + Send,
+                                        >,
+                                    >)
+                            }
                         })
                     });
                     trigger
@@ -752,8 +776,8 @@ where
 
                     // assign a new owner, so that contexts and signals owned by the previous route
                     // in this outlet can be dropped
-                    let old_owner =
-                        mem::replace(&mut current.owner, parent.child());
+                    let mut old_owner =
+                        Some(mem::replace(&mut current.owner, parent.child()));
                     let owner = current.owner.clone();
                     let (full_tx, full_rx) = oneshot::channel();
                     let full_tx = Mutex::new(Some(full_tx));
@@ -780,6 +804,7 @@ where
                                         let view = view.clone();
                                         let full_tx =
                                             full_tx.lock().or_poisoned().take();
+                                        let old_owner = old_owner.take();
                                         Suspend::new(Box::pin(async move {
                                             let view = SendWrapper::new(
                                                 owner.with(|| {
@@ -795,6 +820,10 @@ where
                                                 }),
                                             );
                                             let view = view.await;
+                                            if let Some(old_owner) = old_owner {
+                                                old_owner.cleanup();
+                                            }
+
                                             if let Some(tx) = full_tx {
                                                 _ = tx.send(());
                                             }
@@ -803,7 +832,7 @@ where
                                             })
                                         }))
                                     });
-                                drop(old_owner);
+
                                 drop(old_params);
                                 drop(old_url);
                                 drop(old_matched);
@@ -872,6 +901,10 @@ where
     fn insert_before_this(&self, child: &mut dyn Mountable) -> bool {
         self.view.insert_before_this(child)
     }
+
+    fn elements(&self) -> Vec<tachys::renderer::types::Element> {
+        self.view.elements()
+    }
 }
 
 /// Displays the child route nested in a parent route, allowing you to control exactly where
@@ -887,7 +920,7 @@ where
             trigger, view_fn, ..
         } = ctx;
         trigger.track();
-        let view_fn = view_fn.lock().or_poisoned();
+        let mut view_fn = view_fn.lock().or_poisoned();
         view_fn()
     }
 }

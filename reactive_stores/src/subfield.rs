@@ -9,9 +9,10 @@ use reactive_graph::{
         ArcTrigger,
     },
     traits::{
-        DefinedAt, IsDisposed, Notify, ReadUntracked, Track, UntrackableGuard,
-        Write,
+        DefinedAt, Get as _, IsDisposed, Notify, ReadUntracked, Track,
+        UntrackableGuard, Write,
     },
+    wrappers::read::Signal,
 };
 use std::{iter, marker::PhantomData, ops::DerefMut, panic::Location};
 
@@ -93,24 +94,15 @@ where
     }
 
     fn writer(&self) -> Option<Self::Writer> {
-        let trigger = self.get_trigger(self.path().into_iter().collect());
         let mut parent = self.inner.writer()?;
+
+        // we will manually include all the parent and ancestor `children` triggers
+        // in triggers_for_current_path() below. we want to untrack the parent writer
+        // so that it doesn't notify on the parent's `this` trigger, which would notify our
+        // siblings too
         parent.untrack();
-
-        let mut full_path = self.path().into_iter().collect::<StorePath>();
-        full_path.pop();
-        let mut triggers = Vec::with_capacity(full_path.len());
-        triggers.push(trigger.this.clone());
-        loop {
-            let inner = self.get_trigger(full_path.clone());
-            triggers.push(inner.children.clone());
-            if full_path.is_empty() {
-                break;
-            }
-            full_path.pop();
-        }
+        let triggers = self.triggers_for_current_path();
         let guard = WriteGuard::new(triggers, parent);
-
         Some(MappedMut::new(guard, self.read, self.write))
     }
 
@@ -221,5 +213,16 @@ where
             writer.untrack();
             writer
         })
+    }
+}
+
+impl<Inner, Prev, T> From<Subfield<Inner, Prev, T>> for Signal<T>
+where
+    Inner: StoreField<Value = Prev> + Track + Send + Sync + 'static,
+    Prev: 'static,
+    T: Send + Sync + Clone + 'static,
+{
+    fn from(subfield: Subfield<Inner, Prev, T>) -> Self {
+        Signal::derive(move || subfield.get())
     }
 }

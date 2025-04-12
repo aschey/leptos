@@ -122,35 +122,12 @@ where
     }
 
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
-        if let Some(first) = self.states.first() {
-            first.insert_before_this(child)
-        } else {
-            self.marker.insert_before_this(child)
+        for state in &self.states {
+            if state.insert_before_this(child) {
+                return true;
+            }
         }
-    }
-}
-
-impl<T, R, const N: usize> Render<R> for [T; N]
-where
-    T: Render<R>,
-    R: Renderer,
-{
-    type State = ArrayState<T::State, R, N>;
-
-    fn build(self) -> Self::State {
-        Self::State {
-            states: self.map(T::build),
-            _phantom: Default::default(),
-        }
-    }
-
-    fn rebuild(self, state: &mut Self::State) {
-        let Self::State { states, .. } = state;
-        let old = states;
-        // this is an unkeyed diff
-        self.into_iter()
-            .zip(old.iter_mut())
-            .for_each(|(new, old)| T::rebuild(new, old));
+        self.marker.insert_before_this(child)
     }
 }
 
@@ -180,10 +157,140 @@ where
     }
 
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
-        if let Some(first) = self.states.first() {
-            first.insert_before_this(child)
-        } else {
-            false
+        for state in &self.states {
+            if state.insert_before_this(child) {
+                return true;
+            }
         }
+        false
+    }
+}
+
+/// A container used for ErasedMode. It's slightly better than a raw Vec<> because the rendering traits don't have to worry about the length of the Vec changing, therefore no marker traits etc.
+pub struct StaticVec<T>(pub(crate) Vec<T>);
+
+impl<T: Clone> Clone for StaticVec<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> IntoIterator for StaticVec<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<T> StaticVec<T> {
+    /// Iterates over the items.
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.0.iter()
+    }
+}
+
+impl<T> From<Vec<T>> for StaticVec<T> {
+    fn from(vec: Vec<T>) -> Self {
+        Self(vec)
+    }
+}
+
+impl<T> From<StaticVec<T>> for Vec<T> {
+    fn from(static_vec: StaticVec<T>) -> Self {
+        static_vec.0
+    }
+}
+
+/// Retained view state for a `StaticVec<Vec<_>>`.
+pub struct StaticVecState<T, R>
+where
+    T: Mountable<R>,
+    R: Renderer,
+{
+    states: Vec<T>,
+    parent: Option<R::Element>,
+}
+
+impl<T, R> Mountable<R> for StaticVecState<T, R>
+where
+    T: Mountable<R>,
+    R: Renderer,
+{
+    fn unmount(&mut self) {
+        self.states.iter_mut().for_each(Mountable::unmount);
+    }
+
+    fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
+        for state in self.states.iter_mut() {
+            state.mount(parent, marker);
+        }
+        self.parent = Some(parent.clone());
+    }
+
+    fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
+        for state in &self.states {
+            if state.insert_before_this(child) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+impl<T, R> Render<R> for StaticVec<T>
+where
+    T: Render<R>,
+    R: Renderer,
+{
+    type State = StaticVecState<T::State, R>;
+
+    fn build(self) -> Self::State {
+        Self::State {
+            states: self.0.into_iter().map(T::build).collect(),
+            parent: None,
+        }
+    }
+
+    fn rebuild(self, state: &mut Self::State) {
+        let Self::State { states, .. } = state;
+
+        // StaticVec's in general shouldn't need to be reused, but rebuild() will still trigger e.g. if 2 routes have the same tree,
+        // this can cause problems if differing in lengths. Because we don't use marker nodes in StaticVec, we rebuild the entire vec remounting to the parent.
+
+        for state in states {
+            state.unmount();
+        }
+        let parent = state
+            .parent
+            .take()
+            .expect("parent should always be Some() on a StaticVec rebuild()");
+        *state = self.build();
+        state.mount(&parent, None);
+    }
+}
+
+impl<T, R, const N: usize> Render<R> for [T; N]
+where
+    T: Render<R>,
+    R: Renderer,
+{
+    type State = ArrayState<T::State, R, N>;
+
+    fn build(self) -> Self::State {
+        Self::State {
+            states: self.map(T::build),
+            _phantom: Default::default(),
+        }
+    }
+
+    fn rebuild(self, state: &mut Self::State) {
+        let Self::State { states, .. } = state;
+        let old = states;
+        // this is an unkeyed diff
+        self.into_iter()
+            .zip(old.iter_mut())
+            .for_each(|(new, old)| T::rebuild(new, old));
     }
 }

@@ -44,7 +44,7 @@
 
 use futures::{Stream, StreamExt};
 use leptos::{
-    attr::NextAttribute,
+    attr::{any_attribute::AnyAttribute, NextAttribute},
     component,
     logging::debug_warn,
     oco::Oco,
@@ -323,37 +323,13 @@ pub(crate) fn register<E, At, Ch>(
 where
     HtmlElement<E, At, Ch>: RenderHtml,
 {
-    #[allow(unused_mut)] // used for `ssr`
-    let mut el = Some(el);
-
-    #[cfg(feature = "ssr")]
-    if let Some(cx) = use_context::<ServerMetaContext>() {
-        let mut buf = String::new();
-        el.take().unwrap().to_html_with_buf(
-            &mut buf,
-            &mut Position::NextChild,
-            false,
-            false,
-        );
-        _ = cx.elements.send(buf); // fails only if the receiver is already dropped
-    } else {
-        let msg = "tried to use a leptos_meta component without \
-                   `ServerMetaContext` provided";
-
-        #[cfg(feature = "tracing")]
-        tracing::warn!("{}", msg);
-
-        #[cfg(not(feature = "tracing"))]
-        eprintln!("{}", msg);
-    }
-
     RegisteredMetaTag { el }
 }
 
 struct RegisteredMetaTag<E, At, Ch> {
     // this is `None` if we've already taken it out to render to HTML on the server
     // we don't render it in place in RenderHtml, so it's fine
-    el: Option<HtmlElement<E, At, Ch>>,
+    el: HtmlElement<E, At, Ch>,
 }
 
 struct RegisteredMetaTagState<E, At, Ch>
@@ -391,12 +367,12 @@ where
     type State = RegisteredMetaTagState<E, At, Ch>;
 
     fn build(self) -> Self::State {
-        let state = self.el.unwrap().build();
+        let state = self.el.build();
         RegisteredMetaTagState { state }
     }
 
     fn rebuild(self, state: &mut Self::State) {
-        self.el.unwrap().rebuild(&mut state.state);
+        self.el.rebuild(&mut state.state);
     }
 }
 
@@ -417,7 +393,7 @@ where
         Self::Output<NewAttr>: RenderHtml,
     {
         RegisteredMetaTag {
-            el: self.el.map(|inner| inner.add_any_attr(attr)),
+            el: self.el.add_any_attr(attr),
         }
     }
 }
@@ -429,6 +405,7 @@ where
     Ch: RenderHtml + Send,
 {
     type AsyncOutput = Self;
+    type Owned = RegisteredMetaTag<E, At::CloneableOwned, Ch::Owned>;
 
     const MIN_LENGTH: usize = 0;
 
@@ -446,9 +423,31 @@ where
         _position: &mut Position,
         _escape: bool,
         _mark_branches: bool,
+        _extra_attrs: Vec<AnyAttribute>,
     ) {
         // meta tags are rendered into the buffer stored into the context
         // the value has already been taken out, when we're on the server
+        #[cfg(feature = "ssr")]
+        if let Some(cx) = use_context::<ServerMetaContext>() {
+            let mut buf = String::new();
+            self.el.to_html_with_buf(
+                &mut buf,
+                &mut Position::NextChild,
+                false,
+                false,
+                vec![],
+            );
+            _ = cx.elements.send(buf); // fails only if the receiver is already dropped
+        } else {
+            let msg = "tried to use a leptos_meta component without \
+                       `ServerMetaContext` provided";
+
+            #[cfg(feature = "tracing")]
+            tracing::warn!("{}", msg);
+
+            #[cfg(not(feature = "tracing"))]
+            eprintln!("{}", msg);
+        }
     }
 
     fn hydrate<const FROM_SERVER: bool>(
@@ -462,11 +461,17 @@ where
                  MetaContext provided",
             )
             .cursor;
-        let state = self.el.unwrap().hydrate::<FROM_SERVER>(
+        let state = self.el.hydrate::<FROM_SERVER>(
             &cursor,
             &PositionState::new(Position::NextChild),
         );
         RegisteredMetaTagState { state }
+    }
+
+    fn into_owned(self) -> Self::Owned {
+        RegisteredMetaTag {
+            el: self.el.into_owned(),
+        }
     }
 }
 
@@ -499,6 +504,10 @@ where
         // the alternate view will end up being mounted in the <head> -- which is not at all what
         // we intended!
         false
+    }
+
+    fn elements(&self) -> Vec<leptos::tachys::renderer::types::Element> {
+        self.state.elements()
     }
 }
 
@@ -541,6 +550,7 @@ impl AddAnyAttr for MetaTagsView {
 
 impl RenderHtml for MetaTagsView {
     type AsyncOutput = Self;
+    type Owned = Self;
 
     const MIN_LENGTH: usize = 0;
 
@@ -556,6 +566,7 @@ impl RenderHtml for MetaTagsView {
         _position: &mut Position,
         _escape: bool,
         _mark_branches: bool,
+        _extra_attrs: Vec<AnyAttribute>,
     ) {
         buf.push_str("<!--HEAD-->");
     }
@@ -565,6 +576,10 @@ impl RenderHtml for MetaTagsView {
         _cursor: &Cursor,
         _position: &PositionState,
     ) -> Self::State {
+    }
+
+    fn into_owned(self) -> Self::Owned {
+        self
     }
 }
 

@@ -2,6 +2,10 @@ use super::{PartialPathMatch, PathSegment, PossibleRouteMatch};
 use std::fmt::Debug;
 
 impl PossibleRouteMatch for () {
+    fn optional(&self) -> bool {
+        false
+    }
+
     fn test<'a>(&self, path: &'a str) -> Option<PartialPathMatch<'a>> {
         Some(PartialPathMatch::new(path, vec![], ""))
     }
@@ -54,6 +58,10 @@ impl AsPath for &'static str {
 pub struct StaticSegment<T: AsPath>(pub T);
 
 impl<T: AsPath> PossibleRouteMatch for StaticSegment<T> {
+    fn optional(&self) -> bool {
+        false
+    }
+
     fn test<'a>(&self, path: &'a str) -> Option<PartialPathMatch<'a>> {
         let mut matched_len = 0;
         let mut test = path.chars().peekable();
@@ -77,7 +85,12 @@ impl<T: AsPath> PossibleRouteMatch for StaticSegment<T> {
         for char in test {
             let n = this.next();
             // when we get a closing /, stop matching
-            if char == '/' || n.is_none() {
+            if char == '/' {
+                if n.is_some() {
+                    return None;
+                }
+                break;
+            } else if n.is_none() {
                 break;
             }
             // if the next character in the path matches the
@@ -260,5 +273,16 @@ mod tests {
         assert_eq!(matched.remaining(), "");
         let params = matched.params();
         assert!(params.is_empty());
+    }
+
+    #[test]
+    fn only_match_full_static_paths() {
+        let def = (StaticSegment("tests"), StaticSegment("abc"));
+        assert!(def.test("/tes/abc").is_none());
+        assert!(def.test("/test/abc").is_none());
+        assert!(def.test("/tes/abc/").is_none());
+        assert!(def.test("/test/abc/").is_none());
+        assert!(def.test("/tests/ab").is_none());
+        assert!(def.test("/tests/ab/").is_none());
     }
 }
