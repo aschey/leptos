@@ -141,14 +141,12 @@ where
 impl<T, R> IntoAny<R> for T
 where
     T: Send,
-    T: Render<R> + 'static,
+    T: Render<R>,
     T::State: 'static,
     R: Renderer,
 {
     fn into_any(self) -> AnyView<R> {
-        fn build<T: Render<R> + 'static, R: Renderer>(
-            value: Erased,
-        ) -> AnyViewState<R> {
+        fn build<T: Render<R>, R: Renderer>(value: Erased) -> AnyViewState<R> {
             let state = ErasedLocal::new(value.into_inner::<T>().build());
             AnyViewState {
                 type_id: TypeId::of::<T>(),
@@ -159,7 +157,7 @@ where
             }
         }
 
-        fn rebuild<T: Render<R> + 'static, R: Renderer>(
+        fn rebuild<T: Render<R>, R: Renderer>(
             value: Erased,
             state: &mut AnyViewState<R>,
         ) {

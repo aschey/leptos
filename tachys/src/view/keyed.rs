@@ -62,7 +62,7 @@ where
     I: IntoIterator<Item = T> + 'static,
     K: Eq + Hash + 'static,
     KF: Fn(&T) -> K + 'static,
-    V: Render<R> + 'static,
+    V: Render<R>,
     VF: Fn(usize, T) -> (VFS, V) + 'static,
     VFS: Fn(usize) + 'static,
     R: Renderer,

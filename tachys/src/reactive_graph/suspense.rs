@@ -155,7 +155,7 @@ where
 
 impl<T, R> Render<R> for Suspend<T>
 where
-    T: Render<R> + 'static,
+    T: Render<R>,
     R: Renderer,
 {
     type State = SuspendState<T, R>;

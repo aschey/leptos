@@ -191,7 +191,7 @@ macro_rules! reactive_impl {
         #[allow(deprecated)]
         impl<R,$($gen),*> Render<R> for $name<$($gen),*>
         where
-            $v: Render<R> + Clone + Send + Sync + 'static,
+            $v: Render<R> + Clone + Send + Sync,
             <$v as Render<R>>::State: 'static,
             R: Renderer,
             $($where_clause)*
