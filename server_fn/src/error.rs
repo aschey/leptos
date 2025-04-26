@@ -311,7 +311,7 @@ where
 
     fn decode(bytes: Bytes) -> Result<ServerFnError<CustErr>, Self::Error> {
         let data = String::from_utf8(bytes.to_vec())
-            .map_err(|err| format!("UTF-8 conversion error: {}", err))?;
+            .map_err(|err| format!("UTF-8 conversion error: {err}"))?;
 
         data.split_once('|')
             .ok_or_else(|| {
@@ -561,9 +561,7 @@ impl<E: FromServerFnError> FromStr for ServerFnErrorWrapper<E> {
 }
 
 /// A trait for types that can be returned from a server function.
-pub trait FromServerFnError:
-    std::fmt::Debug + Sized + Display + 'static
-{
+pub trait FromServerFnError: std::fmt::Debug + Sized + 'static {
     /// The encoding strategy used to serialize and deserialize this error type. Must implement the [`Encodes`](server_fn::Encodes) trait for references to the error type.
     type Encoder: Encodes<Self> + Decodes<Self>;
 

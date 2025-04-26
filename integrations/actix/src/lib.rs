@@ -352,10 +352,10 @@ pub fn handle_server_fns_with_context(
                 owner
                     .with(|| {
                         ScopedFuture::new(async move {
-                            additional_context();
                             provide_context(Request::new(&req));
                             let res_options = ResponseOptions::default();
                             provide_context(res_options.clone());
+                            additional_context();
 
                             // store Accepts and Referer in case we need them for redirect (below)
                             let accepts_html = req
@@ -1230,7 +1230,7 @@ fn static_path(options: &LeptosOptions, path: &str) -> String {
     // If the path ends with a trailing slash, we generate the path
     // as a directory with a index.html file inside.
     if path != "/" && path.ends_with("/") {
-        static_file_path(options, &format!("{}index", path))
+        static_file_path(options, &format!("{path}index"))
     } else {
         static_file_path(options, path)
     }

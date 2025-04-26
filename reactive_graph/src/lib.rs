@@ -121,7 +121,7 @@ pub fn log_warning(text: Arguments) {
         not(all(target_arch = "wasm32", target_os = "unknown"))
     ))]
     {
-        eprintln!("{}", text);
+        eprintln!("{text}");
     }
 }
 
@@ -135,6 +135,15 @@ pub fn spawn(task: impl Future<Output = ()> + Send + 'static) {
     any_spawner::Executor::spawn(task);
 
     #[cfg(target_family = "wasm")]
+    any_spawner::Executor::spawn_local(task);
+}
+
+/// Calls [`Executor::spawn_local`](any_spawner::Executor::spawn_local), but ensures that the task also runs in the current arena, if
+/// multithreaded arena sandboxing is enabled.
+pub fn spawn_local(task: impl Future<Output = ()> + 'static) {
+    #[cfg(feature = "sandboxed-arenas")]
+    let task = owner::Sandboxed::new(task);
+
     any_spawner::Executor::spawn_local(task);
 }
 

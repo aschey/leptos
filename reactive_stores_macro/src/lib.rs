@@ -79,7 +79,7 @@ impl Parse for Model {
 
 #[derive(Clone)]
 enum SubfieldMode {
-    Keyed(ExprClosure, Box<Type>),
+    Keyed(Box<ExprClosure>, Box<Type>),
     Skip,
 }
 
@@ -91,7 +91,7 @@ impl Parse for SubfieldMode {
             let ty: Type = input.parse()?;
             let _eq: Token![=] = input.parse()?;
             let closure: ExprClosure = input.parse()?;
-            Ok(SubfieldMode::Keyed(closure, Box::new(ty)))
+            Ok(SubfieldMode::Keyed(Box::new(closure), Box::new(ty)))
         } else if mode == "skip" {
             Ok(SubfieldMode::Skip)
         } else {
@@ -403,7 +403,7 @@ fn variant_to_tokens(
                     let field_ident = field.ident.as_ref().unwrap();
                     let field_ty = &field.ty;
                     let combined_ident = Ident::new(
-                        &format!("{}_{}", ident, field_ident),
+                        &format!("{ident}_{field_ident}"),
                         field_ident.span(),
                     );
 
@@ -481,7 +481,7 @@ fn variant_to_tokens(
                     let field_ident = idx;
                     let field_ty = &field.ty;
                     let combined_ident = Ident::new(
-                        &format!("{}_{}", ident, field_ident),
+                        &format!("{ident}_{field_ident}"),
                         ident.span(),
                     );
 
