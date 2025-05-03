@@ -19,9 +19,9 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "any_spawner"
-version = "0.3.0-rc3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13cbc743e8026cbe749d81d093e42afdd9178ef969374a8c7e6eff0bf130386"
+checksum = "1384d3fe1eecb464229fcf6eebb72306591c56bf27b373561489458a7c73027d"
 dependencies = [
  "futures",
  "thiserror 2.0.12",
@@ -503,9 +503,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_graph"
-version = "0.2.0-rc3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f60623422c1ddd5af4e37c4e63fe82de84d143359660bff1a7b4fb8909a8cb20"
+checksum = "72a2b7d6c997a1d0024142726a6a044cd061827dd25709429fdc99ca294dedc8"
 dependencies = [
  "any_spawner",
  "async-lock",
@@ -523,9 +523,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_stores"
-version = "0.2.0-rc3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d451da2d9dfb700d7cd1e0f921a38054db146434553533e4d94e5d75402921f"
+checksum = "a19194e9cd482f92fa24fac9b96e0b0295af0b519b1ebc2df9f048ea95fff1e9"
 dependencies = [
  "dashmap",
  "guardian",
@@ -540,9 +540,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_stores_macro"
-version = "0.2.0-rc3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8273ea5d3df58d43b652bd408198d9d8219543e8d75fcab01d3583a34a0fcfa"
+checksum = "69f5d6b557ce3b0ac9644faf1677b8f45253c02fa69e14acc55d9695955e4af9"
 dependencies = [
  "convert_case",
  "proc-macro-error2",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "tachys"
-version = "0.2.0-rc3"
+version = "0.2.0"
 dependencies = [
  "any_spawner",
  "drain_filter_polyfill",
