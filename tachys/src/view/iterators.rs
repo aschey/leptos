@@ -210,7 +210,7 @@ where
     R: Renderer,
 {
     states: Vec<T>,
-    parent: Option<R::Element>,
+    marker: R::Placeholder,
 }
 
 impl<T, R> Mountable<R> for StaticVecState<T, R>
@@ -219,14 +219,17 @@ where
     R: Renderer,
 {
     fn unmount(&mut self) {
-        self.states.iter_mut().for_each(Mountable::unmount);
+        for state in self.states.iter_mut() {
+            state.unmount();
+        }
+        self.marker.unmount();
     }
 
     fn mount(&mut self, parent: &R::Element, marker: Option<&R::Node>) {
         for state in self.states.iter_mut() {
             state.mount(parent, marker);
         }
-        self.parent = Some(parent.clone());
+        self.marker.mount(parent, marker);
     }
 
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
@@ -235,7 +238,7 @@ where
                 return true;
             }
         }
-        false
+        self.marker.insert_before_this(child)
     }
 }
 
@@ -247,27 +250,52 @@ where
     type State = StaticVecState<T::State, R>;
 
     fn build(self) -> Self::State {
+        let marker = R::create_placeholder();
         Self::State {
             states: self.0.into_iter().map(T::build).collect(),
-            parent: None,
+            marker,
         }
     }
 
     fn rebuild(self, state: &mut Self::State) {
-        let Self::State { states, .. } = state;
+        let StaticVecState { states, marker } = state;
+        let old = states;
 
-        // StaticVec's in general shouldn't need to be reused, but rebuild() will still trigger e.g. if 2 routes have the same tree,
-        // this can cause problems if differing in lengths. Because we don't use marker nodes in StaticVec, we rebuild the entire vec remounting to the parent.
-
-        for state in states {
-            state.unmount();
+        // reuses the Vec impl
+        if old.is_empty() {
+            let mut new = self.build().states;
+            for item in new.iter_mut() {
+                R::mount_before(item, marker.as_ref());
+            }
+            *old = new;
+        } else if self.0.is_empty() {
+            // TODO fast path for clearing
+            for item in old.iter_mut() {
+                item.unmount();
+            }
+            old.clear();
+        } else {
+            let mut adds = vec![];
+            let mut removes_at_end = 0;
+            for item in self.0.into_iter().zip_longest(old.iter_mut()) {
+                match item {
+                    itertools::EitherOrBoth::Both(new, old) => {
+                        T::rebuild(new, old)
+                    }
+                    itertools::EitherOrBoth::Left(new) => {
+                        let mut new_state = new.build();
+                        R::mount_before(&mut new_state, marker.as_ref());
+                        adds.push(new_state);
+                    }
+                    itertools::EitherOrBoth::Right(old) => {
+                        removes_at_end += 1;
+                        old.unmount()
+                    }
+                }
+            }
+            old.truncate(old.len() - removes_at_end);
+            old.append(&mut adds);
         }
-        let parent = state
-            .parent
-            .take()
-            .expect("parent should always be Some() on a StaticVec rebuild()");
-        *state = self.build();
-        state.mount(&parent, None);
     }
 }
 

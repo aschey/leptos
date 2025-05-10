@@ -103,6 +103,15 @@ where
     }
 }
 
+impl<T> Drop for RenderEffectState<T> {
+    fn drop(&mut self) {
+        if let Some(effect) = self.0.take() {
+            drop(effect.take_value());
+            drop(effect);
+        }
+    }
+}
+
 impl<M, E, R> Mountable<R> for Result<M, E>
 where
     M: Mountable<R>,

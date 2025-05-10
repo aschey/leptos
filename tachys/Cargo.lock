@@ -503,9 +503,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_graph"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72a2b7d6c997a1d0024142726a6a044cd061827dd25709429fdc99ca294dedc8"
+checksum = "ac68cd988635779e6f378871257cbccfd51d7eeb7bc0bf6184835842aed51cc1"
 dependencies = [
  "any_spawner",
  "async-lock",
@@ -523,9 +523,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_stores"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19194e9cd482f92fa24fac9b96e0b0295af0b519b1ebc2df9f048ea95fff1e9"
+checksum = "23e02f30b9cc6645e330e926dd778d4bcbd0e5770bdf4ec3d422dc0fe3c52a41"
 dependencies = [
  "dashmap",
  "guardian",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "tachys"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "any_spawner",
  "drain_filter_polyfill",
