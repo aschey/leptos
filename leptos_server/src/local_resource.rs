@@ -14,11 +14,13 @@ use reactive_graph::{
         ArcRwSignal, RwSignal,
     },
     traits::{
-        DefinedAt, IsDisposed, ReadUntracked, Track, Update, With, Write,
+        DefinedAt, IsDisposed, Notify, ReadUntracked, Track, UntrackableGuard,
+        Update, With, Write,
     },
 };
 use std::{
     future::{pending, Future, IntoFuture},
+    ops::{Deref, DerefMut},
     panic::Location,
 };
 
@@ -38,6 +40,14 @@ impl<T> Clone for ArcLocalResource<T> {
             #[cfg(any(debug_assertions, leptos_debuginfo))]
             defined_at: self.defined_at,
         }
+    }
+}
+
+impl<T> Deref for ArcLocalResource<T> {
+    type Target = ArcAsyncDerived<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
     }
 }
 
@@ -62,7 +72,7 @@ impl<T> ArcLocalResource<T> {
                     pending().await
                 } else {
                     // LocalResources that are immediately available can cause a hydration error,
-                    // because the future *looks* like it is alredy ready (and therefore would
+                    // because the future *looks* like it is already ready (and therefore would
                     // already have been rendered to html on the server), but in fact was ignored
                     // on the server. the simplest way to avoid this is to ensure that we always
                     // wait a tick before resolving any value for a localresource.
@@ -157,6 +167,32 @@ impl<T> DefinedAt for ArcLocalResource<T> {
     }
 }
 
+impl<T> Notify for ArcLocalResource<T>
+where
+    T: 'static,
+{
+    fn notify(&self) {
+        self.data.notify()
+    }
+}
+
+impl<T> Write for ArcLocalResource<T>
+where
+    T: 'static,
+{
+    type Value = Option<T>;
+
+    fn try_write(&self) -> Option<impl UntrackableGuard<Target = Self::Value>> {
+        self.data.try_write()
+    }
+
+    fn try_write_untracked(
+        &self,
+    ) -> Option<impl DerefMut<Target = Self::Value>> {
+        self.data.try_write_untracked()
+    }
+}
+
 impl<T> ReadUntracked for ArcLocalResource<T>
 where
     T: 'static,
@@ -241,6 +277,14 @@ pub struct LocalResource<T> {
     defined_at: &'static Location<'static>,
 }
 
+impl<T> Deref for LocalResource<T> {
+    type Target = AsyncDerived<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
 impl<T> Clone for LocalResource<T> {
     fn clone(&self) -> Self {
         *self
@@ -270,7 +314,7 @@ impl<T> LocalResource<T> {
                     pending().await
                 } else {
                     // LocalResources that are immediately available can cause a hydration error,
-                    // because the future *looks* like it is alredy ready (and therefore would
+                    // because the future *looks* like it is already ready (and therefore would
                     // already have been rendered to html on the server), but in fact was ignored
                     // on the server. the simplest way to avoid this is to ensure that we always
                     // wait a tick before resolving any value for a localresource.
@@ -361,6 +405,32 @@ impl<T> DefinedAt for LocalResource<T> {
         {
             None
         }
+    }
+}
+
+impl<T> Notify for LocalResource<T>
+where
+    T: 'static,
+{
+    fn notify(&self) {
+        self.data.notify()
+    }
+}
+
+impl<T> Write for LocalResource<T>
+where
+    T: 'static,
+{
+    type Value = Option<T>;
+
+    fn try_write(&self) -> Option<impl UntrackableGuard<Target = Self::Value>> {
+        self.data.try_write()
+    }
+
+    fn try_write_untracked(
+        &self,
+    ) -> Option<impl DerefMut<Target = Self::Value>> {
+        self.data.try_write_untracked()
     }
 }
 

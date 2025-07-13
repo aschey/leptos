@@ -162,7 +162,7 @@ where
 
     fn rebuild(self, state: &mut Self::State) {
         let ArcStrState { node, str } = state;
-        if !Arc::ptr_eq(&self, str) {
+        if self != *str {
             R::set_text(node, &self);
             *str = self;
         }

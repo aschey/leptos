@@ -10,19 +10,19 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-config = { version = "0.15.8", default-features = false, features = [
+config = { default-features = false, features = [
   "toml",
   "convert-case",
-] }
-regex = "1.11"
-serde = { version = "1.0", features = ["derive", "rc"] }
-thiserror = { workspace = true }
-typed-builder = { workspace = true }
+] , workspace = true }
+regex = { workspace = true, default-features = true }
+serde = { features = ["derive", "rc"] , workspace = true, default-features = true }
+thiserror = { workspace = true , default-features = true }
+typed-builder = { workspace = true , default-features = true }
 
 [dev-dependencies]
-tokio = { version = "1.43", features = ["rt", "macros"] }
-tempfile = "3.14"
-temp-env = { version = "0.3.6", features = ["async_closure"] }
+tokio = { features = ["rt", "macros"] , workspace = true, default-features = true }
+tempfile = { workspace = true, default-features = true }
+temp-env = { features = ["async_closure"] , workspace = true, default-features = true }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--generate-link-to-definition"]

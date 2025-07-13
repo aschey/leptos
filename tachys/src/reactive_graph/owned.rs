@@ -84,6 +84,14 @@ where
         self.state.mount(parent, marker);
     }
 
+    fn try_mount(
+        &mut self,
+        parent: &R::Element,
+        marker: Option<&R::Node>,
+    ) -> bool {
+        self.state.try_mount(parent, marker)
+    }
+
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
         self.state.insert_before_this(child)
     }

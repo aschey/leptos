@@ -54,7 +54,7 @@ where
         if old.is_empty() {
             let mut new = self.build().states;
             for item in new.iter_mut() {
-                R::mount_before(item, marker.as_ref());
+                R::try_mount_before(item, marker.as_ref());
             }
             *old = new;
         } else if self.is_empty() {
@@ -73,7 +73,7 @@ where
                     }
                     itertools::EitherOrBoth::Left(new) => {
                         let mut new_state = new.build();
-                        R::mount_before(&mut new_state, marker.as_ref());
+                        R::try_mount_before(&mut new_state, marker.as_ref());
                         adds.push(new_state);
                     }
                     itertools::EitherOrBoth::Right(old) => {

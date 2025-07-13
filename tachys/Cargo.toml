@@ -1,6 +1,6 @@
 [package]
 name = "tachys"
-version = "0.2.2"
+version = "0.2.4"
 authors = ["Greg Johnston"]
 license = "MIT"
 readme = "../README.md"
@@ -15,8 +15,8 @@ any_spawner = { version = "0.3.0", optional = true }
 either_of = "0.1.6"
 next_tuple = "0.1.0"
 or_poisoned = "0.1.0"
-reactive_graph = { version = "0.2.2", optional = true }
-reactive_stores = { version = "0.2.2", optional = true }
+reactive_graph = { version = "0.2.3", optional = true }
+reactive_stores = { version = "0.2.3", optional = true }
 oco_ref = { version = "0.2.0", optional = true }
 paste = "1.0"
 drain_filter_polyfill = "0.1.3"
@@ -29,11 +29,11 @@ tracing = { version = "0.1.40", optional = true }
 erased = "0.1.2"
 
 [dev-dependencies]
-tokio-test = "0.4.4"
-tokio = { version = "1.43", features = ["rt", "macros"] }
+tokio-test = "0.4"
+tokio = { features = ["rt", "macros"], version = "1.46" }
 
 [build-dependencies]
-rustc_version = "0.4.1"
+rustc_version = "0.4"
 
 [features]
 tracing = ["dep:tracing"]
@@ -48,7 +48,7 @@ denylist = ["tracing"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(leptos_debuginfo)',
-    'cfg(erase_components)',
-    'cfg(rustc_nightly)',
+  'cfg(leptos_debuginfo)',
+  'cfg(erase_components)',
+  'cfg(rustc_nightly)',
 ] }

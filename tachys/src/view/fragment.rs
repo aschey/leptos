@@ -62,6 +62,15 @@ where
     }
 }
 
+impl<R> IntoFragment<R> for AnyView<R>
+where
+    R: Renderer,
+{
+    fn into_fragment(self) -> Fragment<R> {
+        Fragment::new(vec![self])
+    }
+}
+
 impl<T, R> IntoFragment<R> for Vec<T>
 where
     T: IntoAny<R>,

@@ -477,6 +477,8 @@ fn ItemInspect() -> impl IntoView {
         move || params.get().map(|p| p.path),
         move |p| async move {
             // leptos::logging::log!("res_inspect: res_overview.await");
+            // Note: this resource is untracked here, though `params` changing
+            // will nonetheless results in the "expected" tracked updates.
             let overview = res_overview.await;
             // leptos::logging::log!("res_inspect: resolved res_overview.await");
             // let result =
@@ -561,7 +563,7 @@ fn ShowCounters() -> impl IntoView {
     //
     // However, upon `Reset Counters`, the mode from which the reset
     // was issued will result in the rendering be reflected as such, so
-    // if the intial state was SSR, resetting under CSR will result in
+    // if the initial state was SSR, resetting under CSR will result in
     // the CSR counters be rendered after.  However for the intents and
     // purpose for the testing only the CSR is cared for.
     //
