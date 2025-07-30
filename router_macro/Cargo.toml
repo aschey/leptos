@@ -1,6 +1,6 @@
 [package]
 name = "leptos_router_macro"
-version = "0.8.4"
+version = "0.8.5"
 authors = ["Greg Johnston", "Ben Wishovich"]
 license = "MIT"
 readme = "../README.md"
@@ -19,6 +19,7 @@ quote = { workspace = true, default-features = true }
 syn = { features = ["full"], workspace = true, default-features = true }
 
 [dev-dependencies]
+leptos = { path = "../leptos" }
 leptos_router = { path = "../router" }
 leptos_macro = { path = "../leptos_macro" }
 

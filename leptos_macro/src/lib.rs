@@ -576,7 +576,7 @@ pub fn component(args: proc_macro::TokenStream, s: TokenStream) -> TokenStream {
         false
     };
 
-    component_macro(s, is_transparent, None)
+    component_macro(s, is_transparent, false, None)
 }
 
 /// Defines a component as an interactive island when you are using the
@@ -653,36 +653,37 @@ pub fn component(args: proc_macro::TokenStream, s: TokenStream) -> TokenStream {
 #[proc_macro_error2::proc_macro_error]
 #[proc_macro_attribute]
 pub fn island(args: proc_macro::TokenStream, s: TokenStream) -> TokenStream {
-    let is_transparent = if !args.is_empty() {
-        let transparent = parse_macro_input!(args as syn::Ident);
+    let (is_transparent, is_lazy) = if !args.is_empty() {
+        let arg = parse_macro_input!(args as syn::Ident);
 
-        if transparent != "transparent" {
+        if arg != "transparent" && arg != "lazy" {
             abort!(
-                transparent,
-                "only `transparent` is supported";
-                help = "try `#[island(transparent)]` or `#[island]`"
+                arg,
+                "only `transparent` or `lazy` are supported";
+                help = "try `#[island(transparent)]`, `#[island(lazy)]`, or `#[island]`"
             );
         }
 
-        true
+        (arg == "transparent", arg == "lazy")
     } else {
-        false
+        (false, false)
     };
 
     let island_src = s.to_string();
-    component_macro(s, is_transparent, Some(island_src))
+    component_macro(s, is_transparent, is_lazy, Some(island_src))
 }
 
 fn component_macro(
     s: TokenStream,
     is_transparent: bool,
+    is_lazy: bool,
     island: Option<String>,
 ) -> TokenStream {
     let mut dummy = syn::parse::<DummyModel>(s.clone());
     let parse_result = syn::parse::<component::Model>(s);
 
     if let (Ok(ref mut unexpanded), Ok(model)) = (&mut dummy, parse_result) {
-        let expanded = model.is_transparent(is_transparent).with_island(island).into_token_stream();
+        let expanded = model.is_transparent(is_transparent).is_lazy(is_lazy).with_island(island).into_token_stream();
         if !matches!(unexpanded.vis, Visibility::Public(_)) {
             unexpanded.vis = Visibility::Public(Pub {
                 span: unexpanded.vis.span(),
@@ -690,6 +691,7 @@ fn component_macro(
         }
         unexpanded.sig.ident =
             unmodified_fn_name_from_fn_name(&unexpanded.sig.ident);
+
         quote! {
             #expanded
 
@@ -1028,14 +1030,41 @@ pub fn memo(input: TokenStream) -> TokenStream {
     memo::memo_impl(input)
 }
 
-/// The `#[lazy]` macro marks an `async` function as a function that can be lazy-loaded from a
-/// separate (WebAssembly) binary.
+/// The `#[lazy]` macro indicates that a function can be lazy-loaded from a separate WebAssembly (WASM) binary.
 ///
 /// The first time the function is called, calling the function will first load that other binary,
-/// then call the function. On subsequent call it will be called immediately, but still return
+/// then call the function. On subsequent calls it will be called immediately, but still return
 /// asynchronously to maintain the same API.
 ///
-/// All parameters and output types should be concrete types, with no generics.
+/// `#[lazy]` can be used to annotate synchronous or `async` functions. In both cases, the final function will be
+/// `async` and must be called as such.
+///
+/// All parameters and output types should be concrete types, with no generics or `impl Trait` types.
+///
+/// This should be used in tandem with a suitable build process, such as `cargo leptos --split`.
+///
+/// ```rust
+/// # use leptos_macro::lazy;
+///
+/// #[lazy]
+/// fn lazy_synchronous_function() -> String {
+///     "Hello, lazy world!".to_string()
+/// }
+///
+/// #[lazy]
+/// async fn lazy_async_function() -> String {
+///     /* do something that requires async work */
+///     "Hello, lazy async world!".to_string()
+/// }
+///
+/// async fn use_lazy_functions() {
+///     // synchronous function has been converted to async
+///     let value1 = lazy_synchronous_function().await;
+///
+///     // async function is still async
+///     let value1 = lazy_async_function().await;
+/// }
+/// ```
 #[proc_macro_attribute]
 #[proc_macro_error]
 pub fn lazy(args: proc_macro::TokenStream, s: TokenStream) -> TokenStream {
