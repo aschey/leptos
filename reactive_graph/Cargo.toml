@@ -1,6 +1,6 @@
 [package]
 name = "reactive_graph"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Greg Johnston"]
 license = "MIT"
 readme = "../README.md"
@@ -27,6 +27,7 @@ async-lock = { workspace = true, default-features = true }
 send_wrapper = { features = [
   "futures",
 ], workspace = true, default-features = true }
+indexmap = { workspace = true, default-features = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 web-sys = { version = "0.3.77", features = ["console"] }
