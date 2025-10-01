@@ -1,5 +1,4 @@
 #![deny(missing_docs)]
-#![forbid(unsafe_code)]
 
 //! # About Leptos
 //!
@@ -306,6 +305,10 @@ pub use tachys::mathml as math;
 #[doc(inline)]
 pub use tachys::svg;
 
+#[cfg(feature = "subsecond")]
+/// Utilities for using binary hot-patching with [`subsecond`].
+pub mod subsecond;
+
 /// Utilities for simple isomorphic logging to the console or terminal.
 pub mod logging {
     pub use leptos_dom::{debug_warn, error, log, warn};
@@ -392,7 +395,8 @@ pub fn prefetch_lazy_fn_on_server(id: &'static str) {
 #[derive(Clone, Debug, Default)]
 pub struct WasmSplitManifest(
     pub  reactive_graph::owner::ArcStoredValue<(
-        String,
-        std::collections::HashMap<String, Vec<String>>,
+        String,                                         // the pkg root
+        std::collections::HashMap<String, Vec<String>>, // preloads
+        String, // the name of the __wasm_split.js file
     )>,
 );
