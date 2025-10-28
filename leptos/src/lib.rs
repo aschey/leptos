@@ -311,7 +311,9 @@ pub mod subsecond;
 
 /// Utilities for simple isomorphic logging to the console or terminal.
 pub mod logging {
-    pub use leptos_dom::{debug_warn, error, log, warn};
+    pub use leptos_dom::{
+        debug_error, debug_log, debug_warn, error, log, warn,
+    };
 }
 
 /// Utilities for working with asynchronous tasks.
@@ -363,7 +365,8 @@ pub use serde_json;
 pub use tracing;
 #[doc(hidden)]
 pub use wasm_bindgen;
-pub use wasm_split_helpers;
+#[doc(hidden)]
+pub use wasm_split_helpers as wasm_split;
 #[doc(hidden)]
 pub use web_sys;
 
