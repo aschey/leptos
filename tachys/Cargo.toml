@@ -15,7 +15,7 @@ any_spawner = { version = "0.3.0", optional = true }
 either_of = "0.1.6"
 next_tuple = "0.1.0"
 or_poisoned = "0.1.0"
-reactive_graph = { version = "0.2.9", optional = true }
+reactive_graph = { version = "0.2.10", optional = true }
 reactive_stores = { version = "0.3.0", optional = true }
 oco_ref = { version = "0.2.1", optional = true }
 paste = "1.0"
