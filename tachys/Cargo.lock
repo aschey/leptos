@@ -525,9 +525,9 @@ dependencies = [
 
 [[package]]
 name = "reactive_graph"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "243417a1395a60c8bfa1134822ff5ba0e99be4ad65c0b3389bdd3e5b35907487"
+checksum = "4043190442021086719fb9183daacb050f44d4ed8d3a1c8534e366d45dd95c29"
 dependencies = [
  "any_spawner",
  "async-lock",
@@ -535,6 +535,7 @@ dependencies = [
  "guardian",
  "indexmap",
  "or_poisoned",
+ "paste",
  "pin-project-lite",
  "rustc-hash",
  "rustc_version",
@@ -682,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "tachys"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "any_spawner",
  "drain_filter_polyfill",
