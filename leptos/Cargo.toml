@@ -1,6 +1,6 @@
 [package]
 name = "leptos"
-version = "0.8.15"
+version = "0.8.16"
 authors = ["Greg Johnston"]
 license = "MIT"
 repository = "https://github.com/leptos-rs/leptos"
@@ -177,7 +177,8 @@ skip_feature_sets = [
 max_combination_size = 2
 
 [package.metadata.docs.rs]
-rustdoc-args = ["--generate-link-to-definition"]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition", "--cfg", "erase_components"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

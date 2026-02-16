@@ -238,7 +238,7 @@ mod stable {
         owner::Storage,
         signal::{ArcReadSignal, ArcRwSignal, ReadSignal, RwSignal},
         traits::Get,
-        wrappers::read::{ArcSignal, Signal},
+        wrappers::read::{ArcSignal, MaybeProp, Signal, SignalTypes},
     };
 
     reactive_impl!(
@@ -285,6 +285,14 @@ mod stable {
     reactive_impl!(ArcReadSignal, <V>, V, ArcReadSignal<V>: Get<Value = V>);
     reactive_impl!(ArcMemo, <V>, V, ArcMemo<V>: Get<Value = V>);
     reactive_impl!(ArcSignal, <V>, V, ArcSignal<V>: Get<Value = V>);
+    reactive_impl!(
+        MaybeProp,
+        <V, S>,
+        Option<V>,
+        MaybeProp<V, S>: Get<Value = Option<V>>,
+        S: Storage<Option<V>> + Storage<SignalTypes<Option<V>, S>>,
+        S: Send + Sync + 'static,
+    );
 }
 
 #[cfg(feature = "reactive_stores")]

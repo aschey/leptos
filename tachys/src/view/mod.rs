@@ -1,6 +1,5 @@
 use crate::renderer::Renderer;
-use parking_lot::RwLock;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc};
 
 /// A typed-erased view type.
 pub mod any_view;
@@ -128,53 +127,6 @@ where
     fn insert_before_this(&self, child: &mut dyn Mountable<R>) -> bool {
         self.borrow().insert_before_this(child)
     }
-}
-
-/// Keeps track of what position the item currently being hydrated is in, relative to its siblings
-/// and parents.
-#[derive(Debug, Default, Clone)]
-pub struct PositionState(Arc<RwLock<Position>>);
-
-impl PositionState {
-    /// Creates a new position tracker.
-    pub fn new(position: Position) -> Self {
-        Self(Arc::new(RwLock::new(position)))
-    }
-
-    /// Sets the current position.
-    pub fn set(&self, position: Position) {
-        *self.0.write() = position;
-    }
-
-    /// Gets the current position.
-    pub fn get(&self) -> Position {
-        *self.0.read()
-    }
-
-    /// Creates a new [`PositionState`], which starts with the same [`Position`], but no longer
-    /// shares data with this `PositionState`.
-    pub fn deep_clone(&self) -> Self {
-        let current = self.get();
-        Self(Arc::new(RwLock::new(current)))
-    }
-}
-
-/// The position of this element, relative to others.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum Position {
-    /// This is the current node.
-    Current,
-    /// This is the first child of its parent.
-    #[default]
-    FirstChild,
-    /// This is the next child after another child.
-    NextChild,
-    /// This is the next child after a text node.
-    NextChildAfterText,
-    /// This is the only child of its parent.
-    OnlyChild,
-    /// This is the last child of its parent.
-    LastChild,
 }
 
 /// Declares that this type can be converted into some other type, which can be renderered.

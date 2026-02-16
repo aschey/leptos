@@ -23,7 +23,7 @@ where
     R: Renderer,
 {
     Keyed {
-        items,
+        items: Some(items),
         key_fn,
         view_fn,
     }
@@ -38,7 +38,7 @@ where
     VF: Fn(usize, T) -> (VFS, V),
     VFS: Fn(usize),
 {
-    items: I,
+    items: Option<I>,
     key_fn: KF,
     view_fn: VF,
 }
@@ -71,11 +71,11 @@ where
     type State = KeyedState<K, VFS, V, R>;
 
     fn build(self) -> Self::State {
-        let items = self.items.into_iter();
+        let items = self.items.into_iter().flatten();
         let (capacity, _) = items.size_hint();
         let mut hashed_items =
             FxIndexSet::with_capacity_and_hasher(capacity, Default::default());
-        let mut rendered_items = Vec::new();
+        let mut rendered_items = Vec::with_capacity(capacity);
         for (index, item) in items.enumerate() {
             hashed_items.insert((self.key_fn)(&item));
             let (set_index, view) = (self.view_fn)(index, item);
@@ -96,7 +96,7 @@ where
             hashed_items,
             ref mut rendered_items,
         } = state;
-        let new_items = self.items.into_iter();
+        let new_items = self.items.into_iter().flatten();
         let (capacity, _) = new_items.size_hint();
         let mut new_hashed_items =
             FxIndexSet::with_capacity_and_hasher(capacity, Default::default());
@@ -337,7 +337,7 @@ fn apply_diff<T, VFS, V, R>(
     marker: &R::Placeholder,
     diff: Diff,
     children: &mut Vec<Option<(VFS, V::State)>>,
-    view_fn: impl Fn(usize, T) -> (VFS, V),
+    view_fn: &dyn Fn(usize, T) -> (VFS, V),
     mut items: Vec<Option<T>>,
 ) where
     VFS: Fn(usize),
