@@ -22,65 +22,63 @@ use std::{
     panic::Location,
 };
 
-/// Accesses an item form a collection.
-pub trait KeyedAccess {
-    /// Key used to access values.
-    type Key;
+/// Accesses an item from a keyed collection.
+///
+/// `K` is the identity key type used to uniquely identify entries. Collections
+/// that are indexed by position (like `Vec`) can implement this for any `K`,
+/// ignoring the key and using the `index` parameter instead. Collections that
+/// are indexed by key (like `HashMap`) use the `key` parameter.
+pub trait KeyedAccess<K> {
     /// Collection values.
     type Value;
-    /// Acquire mutable access to a value.
-    fn keyed_mut(&mut self, index: usize, key: Self::Key) -> &mut Self::Value;
     /// Acquire read-only access to a value.
-    fn keyed(&self, index: usize, key: Self::Key) -> &Self::Value;
+    fn keyed(&self, index: usize, key: &K) -> &Self::Value;
+    /// Acquire mutable access to a value.
+    fn keyed_mut(&mut self, index: usize, key: &K) -> &mut Self::Value;
 }
-impl<T> KeyedAccess for VecDeque<T> {
-    type Key = usize;
+impl<K, T> KeyedAccess<K> for VecDeque<T> {
     type Value = T;
-    fn keyed(&self, index: usize, _key: Self::Key) -> &Self::Value {
+    fn keyed(&self, index: usize, _key: &K) -> &Self::Value {
         self.index(index)
     }
-    fn keyed_mut(&mut self, index: usize, _key: Self::Key) -> &mut Self::Value {
+    fn keyed_mut(&mut self, index: usize, _key: &K) -> &mut Self::Value {
         self.index_mut(index)
     }
 }
-impl<T> KeyedAccess for Vec<T> {
-    type Key = usize;
+impl<K, T> KeyedAccess<K> for Vec<T> {
     type Value = T;
-    fn keyed(&self, index: usize, _key: Self::Key) -> &Self::Value {
+    fn keyed(&self, index: usize, _key: &K) -> &Self::Value {
         self.index(index)
     }
-    fn keyed_mut(&mut self, index: usize, _key: Self::Key) -> &mut Self::Value {
+    fn keyed_mut(&mut self, index: usize, _key: &K) -> &mut Self::Value {
         self.index_mut(index)
     }
 }
-impl<T> KeyedAccess for [T] {
-    type Key = usize;
+impl<K, T> KeyedAccess<K> for [T] {
     type Value = T;
-    fn keyed(&self, index: usize, _key: Self::Key) -> &Self::Value {
+    fn keyed(&self, index: usize, _key: &K) -> &Self::Value {
         self.index(index)
     }
-    fn keyed_mut(&mut self, index: usize, _key: Self::Key) -> &mut Self::Value {
+    fn keyed_mut(&mut self, index: usize, _key: &K) -> &mut Self::Value {
         self.index_mut(index)
     }
 }
-impl<K: Ord, V> KeyedAccess for std::collections::BTreeMap<K, V> {
-    type Key = K;
+impl<K: Ord, V> KeyedAccess<K> for std::collections::BTreeMap<K, V> {
     type Value = V;
-    fn keyed(&self, _index: usize, key: Self::Key) -> &Self::Value {
-        self.get(&key).expect("key does not exist")
+    fn keyed(&self, _index: usize, key: &K) -> &Self::Value {
+        self.get(key).expect("key does not exist")
     }
-    fn keyed_mut(&mut self, _index: usize, key: Self::Key) -> &mut Self::Value {
-        self.get_mut(&key).expect("key does not exist")
+    fn keyed_mut(&mut self, _index: usize, key: &K) -> &mut Self::Value {
+        self.get_mut(key).expect("key does not exist")
     }
 }
-impl<K: Hash + Eq, V> KeyedAccess for std::collections::HashMap<K, V> {
-    type Key = K;
+impl<K: Hash + Eq, V> KeyedAccess<K> for std::collections::HashMap<K, V> {
     type Value = V;
-    fn keyed(&self, _index: usize, key: Self::Key) -> &Self::Value {
-        self.get(&key).expect("key does not exist")
+    fn keyed(&self, _index: usize, key: &K) -> &Self::Value {
+        self.get(key).expect("key does not exist")
     }
-    fn keyed_mut(&mut self, _index: usize, key: Self::Key) -> &mut Self::Value {
-        self.get_mut(&key).expect("key does not exist")
+    fn keyed_mut(&mut self, _index: usize, key: &K) -> &mut Self::Value {
+        self.get_mut(key).expect("key does not exist")
     }
 }
 
@@ -96,7 +94,7 @@ where
     inner: Inner,
     read: fn(&Prev) -> &T,
     write: fn(&mut Prev) -> &mut T,
-    key_fn: fn(<&T as IntoIterator>::Item) -> K,
+    pub(crate) key_fn: fn(<&T as IntoIterator>::Item) -> K,
 }
 
 impl<Inner, Prev, K, T> Clone for KeyedSubfield<Inner, Prev, K, T>
@@ -231,6 +229,26 @@ where
         self.reader()
             .map(|r| r.deref().into_iter().map(|n| (self.key_fn)(n)).collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn path_at_key(
+        &self,
+        base_path: &StorePath,
+        key: &K,
+    ) -> Option<StorePath> {
+        let keys = self.keys();
+        let keys = keys.as_ref()?;
+        let segment = keys
+            .with_field_keys(
+                base_path.clone(),
+                |keys| (keys.get(key), vec![]),
+                || self.latest_keys(),
+            )
+            .flatten()
+            .map(|(_, idx)| idx)?;
+        let mut path = base_path.clone();
+        path.push(segment);
+        Some(path)
     }
 }
 
@@ -517,7 +535,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized,
 {
     /// Attempt to resolve the inner index if is still exists.
@@ -541,7 +559,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized,
 {
     type Value = T::Value;
@@ -607,11 +625,11 @@ where
             inner,
             {
                 let key = self.key.clone();
-                move |n| n.keyed(index, key.clone())
+                move |n| n.keyed(index, &key)
             },
             {
                 let key = self.key.clone();
-                move |n| n.keyed_mut(index, key.clone())
+                move |n| n.keyed_mut(index, &key)
             },
         ))
     }
@@ -627,11 +645,11 @@ where
                 inner,
                 {
                     let key = self.key.clone();
-                    move |n| n.keyed(index, key.clone())
+                    move |n| n.keyed(index, &key)
                 },
                 {
                     let key = self.key.clone();
-                    move |n| n.keyed_mut(index, key.clone())
+                    move |n| n.keyed_mut(index, &key)
                 },
             ),
         ))
@@ -693,7 +711,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized,
 {
     fn notify(&self) {
@@ -710,7 +728,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized,
 {
     fn track(&self) {
@@ -725,7 +743,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized,
 {
     type Value = <Self as StoreField>::Reader;
@@ -742,7 +760,7 @@ where
     for<'a> &'a T: IntoIterator,
     Inner: StoreField<Value = Prev>,
     Prev: 'static,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
     T::Value: Sized + 'static,
 {
     type Value = T::Value;
@@ -797,7 +815,7 @@ where
     Inner: Clone + StoreField<Value = Prev> + 'static,
     Prev: 'static,
     K: Clone + Debug + Send + Sync + PartialEq + Eq + Hash + 'static,
-    T: KeyedAccess<Key = K> + 'static,
+    T: KeyedAccess<K> + 'static,
     T::Value: Sized,
 {
     type Item = AtKeyed<Inner, Prev, K, T>;
@@ -829,7 +847,7 @@ where
 pub struct StoreFieldKeyedIter<Inner, Prev, K, T>
 where
     for<'a> &'a T: IntoIterator,
-    T: KeyedAccess<Key = K>,
+    T: KeyedAccess<K>,
 {
     inner: KeyedSubfield<Inner, Prev, K, T>,
     keys: VecDeque<K>,
@@ -838,7 +856,7 @@ where
 impl<Inner, Prev, K, T> Iterator for StoreFieldKeyedIter<Inner, Prev, K, T>
 where
     Inner: StoreField<Value = Prev> + Clone + 'static,
-    T: KeyedAccess<Key = K> + 'static,
+    T: KeyedAccess<K> + 'static,
     for<'a> &'a T: IntoIterator,
 {
     type Item = AtKeyed<Inner, Prev, K, T>;
@@ -854,7 +872,7 @@ impl<Inner, Prev, K, T> DoubleEndedIterator
     for StoreFieldKeyedIter<Inner, Prev, K, T>
 where
     Inner: StoreField<Value = Prev> + Clone + 'static,
-    T: KeyedAccess<Key = K> + 'static,
+    T: KeyedAccess<K> + 'static,
     T::Value: Sized + 'static,
     for<'a> &'a T: IntoIterator,
 {
@@ -1318,5 +1336,124 @@ mod tests {
         let at_faulty_key = AtKeyed::new(store.todos(), "faulty".to_string());
         let missing = at_faulty_key.try_get();
         assert!(missing.is_none(), "faulty key should return none.")
+    }
+
+    #[test]
+    fn non_usize_keys_work_for_vec() {
+        #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+        struct MyIdType(u32);
+
+        #[derive(Debug, Store)]
+        struct Item {
+            id: MyIdType,
+            _value: String,
+        }
+
+        #[derive(Debug, Store)]
+        struct MyStore {
+            #[store(key: MyIdType = |item| item.id.clone())]
+            items: Vec<Item>,
+        }
+
+        let store = Store::new(MyStore { items: Vec::new() });
+
+        let _fields = store.items().into_iter();
+    }
+
+    #[tokio::test]
+    async fn patching_keyed_field_only_notifies_changed_keys() {
+        _ = any_spawner::Executor::init_tokio();
+
+        let store = Store::new(TodoVec::test_data());
+        assert_eq!(store.read_untracked().todos.len(), 3);
+
+        // create an effect to read from each keyed field
+        let whole_count = Arc::new(AtomicUsize::new(0));
+        let a_count = Arc::new(AtomicUsize::new(0));
+        let b_count = Arc::new(AtomicUsize::new(0));
+        let c_count = Arc::new(AtomicUsize::new(0));
+
+        let whole = store.todos();
+        let a = AtKeyed::new(store.todos(), 10);
+        let b = AtKeyed::new(store.todos(), 11);
+        let c = AtKeyed::new(store.todos(), 12);
+
+        Effect::new_sync({
+            let whole_count = Arc::clone(&whole_count);
+            move || {
+                whole.track();
+                whole_count.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        Effect::new_sync({
+            let a_count = Arc::clone(&a_count);
+            move || {
+                a.track();
+                a_count.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        Effect::new_sync({
+            let b_count = Arc::clone(&b_count);
+            move || {
+                b.track();
+                b_count.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        Effect::new_sync({
+            let c_count = Arc::clone(&c_count);
+            move || {
+                c.track();
+                c_count.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        tick().await;
+        assert_eq!(whole_count.load(Ordering::Relaxed), 1);
+        assert_eq!(a_count.load(Ordering::Relaxed), 1);
+        assert_eq!(b_count.load(Ordering::Relaxed), 1);
+        assert_eq!(c_count.load(Ordering::Relaxed), 1);
+
+        // patching only notifies changed keys
+        let mut new_data = store.todos().get_untracked();
+        new_data.swap(0, 2);
+        store.todos().patch(new_data.clone());
+        let after = store.todos().get_untracked();
+        assert_eq!(
+            after,
+            vec![Todo::new(12, "C"), Todo::new(11, "B"), Todo::new(10, "A")]
+        );
+
+        tick().await;
+        assert_eq!(whole_count.load(Ordering::Relaxed), 2);
+        assert_eq!(a_count.load(Ordering::Relaxed), 1);
+        assert_eq!(b_count.load(Ordering::Relaxed), 1);
+        assert_eq!(c_count.load(Ordering::Relaxed), 1);
+
+        // and after we move the keys around, they still update the moved items
+        a.label().set("Bar".into());
+        let after = store.todos().get_untracked();
+        assert_eq!(
+            after,
+            vec![Todo::new(12, "C"), Todo::new(11, "B"), Todo::new(10, "Bar")]
+        );
+        tick().await;
+        assert_eq!(whole_count.load(Ordering::Relaxed), 3);
+        assert_eq!(a_count.load(Ordering::Relaxed), 2);
+        assert_eq!(b_count.load(Ordering::Relaxed), 1);
+        assert_eq!(c_count.load(Ordering::Relaxed), 1);
+
+        // regular writes to the collection notify all keyed children
+        store.todos().write().pop();
+        store.todos().write().push(Todo::new(13, "New"));
+        let after = store.todos().get_untracked();
+        assert_eq!(
+            after,
+            vec![Todo::new(12, "C"), Todo::new(11, "B"), Todo::new(13, "New")]
+        );
+        tick().await;
+        assert_eq!(whole_count.load(Ordering::Relaxed), 4);
+        assert_eq!(a_count.load(Ordering::Relaxed), 3);
+        assert_eq!(b_count.load(Ordering::Relaxed), 2);
+        assert_eq!(c_count.load(Ordering::Relaxed), 2);
     }
 }
